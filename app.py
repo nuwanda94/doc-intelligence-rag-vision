@@ -8,7 +8,7 @@ from PIL import Image
 import tempfile
 import os
 from threading import Thread
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 # -----------------------------
 # Model Loading (module level for ZeroGPU)
@@ -83,6 +83,26 @@ def _file_path(file_obj) -> str:
     if not path or not isinstance(path, str):
         raise gr.Error("Could not read an uploaded file. Please try uploading again.")
     return path
+
+
+def label_sent_page(src: str, index: int, total: int) -> str:
+    """Caption for a page that was actually sent to the VLM."""
+    return f"Sent to model · {index}/{total} · {src}"
+
+
+def build_gallery_and_sources(
+    page_images: List[Image.Image],
+    source_info: List[str],
+) -> Tuple[List[Tuple[Image.Image, str]], str]:
+    """Gallery + text listing only the pages forwarded to the model."""
+    total = len(source_info)
+    gallery = [
+        (img, label_sent_page(src, i + 1, total))
+        for i, (img, src) in enumerate(zip(page_images, source_info))
+    ]
+    header = f"Pages sent to the model ({total}):"
+    sources_text = header + "\n" + "\n".join([f"- {s}" for s in source_info])
+    return gallery, sources_text
 
 
 def validate_uploads(files: Optional[List], question: str) -> List[str]:
@@ -244,8 +264,7 @@ def analyze_document(
         return_tensors="pt"
     ).to(model.device)
 
-    gallery = [(img, src) for img, src in zip(page_images, source_info)]
-    sources_text = "\n".join([f"- {s}" for s in source_info])
+    gallery, sources_text = build_gallery_and_sources(page_images, source_info)
 
     streamer = TextIteratorStreamer(
         processor.tokenizer,
@@ -311,8 +330,13 @@ with gr.Blocks(
 
         with gr.Column(scale=1):
             answer = gr.Textbox(label="Answer", lines=12)          # ← fixed
-            sources = gr.Textbox(label="Sources used", lines=4)
-            gallery = gr.Gallery(label="Document Pages", columns=2, height=400, object_fit="contain")
+            sources = gr.Textbox(label="Pages sent to the model", lines=4)
+            gallery = gr.Gallery(
+                label="Pages sent to the model",
+                columns=2,
+                height=400,
+                object_fit="contain",
+            )
 
     gr.Examples(
         examples=[

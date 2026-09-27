@@ -46,7 +46,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Strengthen system prompt to require page citations and precise table/chart extraction.
 - Type: fix
 
-### 8. [TODO] feat: highlight only relevant source pages in gallery
+### 8. [DONE] feat: highlight only relevant source pages in gallery
 - Ideally rank or at least document which pages were sent; improve gallery labeling.
 - Type: feat
 
