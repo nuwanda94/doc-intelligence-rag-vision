@@ -30,6 +30,10 @@ MAX_MAX_NEW_TOKENS = 1024
 TOP_P = 0.9
 GPU_DURATION_SECONDS = 120
 QUEUE_MAX_SIZE = 10
+STATUS_IDLE = "Ready — upload a document and ask a question."
+STATUS_PREPARING = "Preparing pages and allocating GPU… this can take a minute on a cold start."
+STATUS_GENERATING = "Generating answer…"
+STATUS_DONE = "Done."
 
 SYSTEM_PROMPT = (
     "You are an expert document intelligence assistant. "
@@ -111,6 +115,21 @@ def build_gallery_and_sources(
     header = f"Pages sent to the model ({total}):"
     sources_text = header + "\n" + "\n".join([f"- {s}" for s in source_info])
     return gallery, sources_text
+
+
+def clear_workspace():
+    """Reset uploads, question, outputs, and status to a clean idle state."""
+    return (
+        None,
+        "",
+        MAX_PAGES_DEFAULT,
+        DEFAULT_TEMPERATURE,
+        DEFAULT_MAX_NEW_TOKENS,
+        "",
+        [],
+        "",
+        STATUS_IDLE,
+    )
 
 
 def validate_uploads(files: Optional[List], question: str) -> List[str]:
@@ -216,6 +235,8 @@ def analyze_document(
     temperature: float = DEFAULT_TEMPERATURE,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
 ):
+    yield STATUS_PREPARING, "Preparing document…", None, ""
+
     paths = validate_uploads(files, question)
 
     page_images = []
@@ -291,14 +312,16 @@ def analyze_document(
     thread.start()
 
     # Show sources immediately, then stream tokens into the answer box.
-    yield "", gallery, sources_text
+    yield STATUS_GENERATING, "", gallery, sources_text
     partial = ""
     for token in streamer:
         partial += token
-        yield partial, gallery, sources_text
+        yield STATUS_GENERATING, partial, gallery, sources_text
     thread.join()
     if not partial:
-        yield "(No answer generated.)", gallery, sources_text
+        yield STATUS_DONE, "(No answer generated.)", gallery, sources_text
+    else:
+        yield STATUS_DONE, partial, gallery, sources_text
 
 # -----------------------------
 # Gradio UI
@@ -317,6 +340,8 @@ with gr.Blocks(
     Upload PDFs or images → Ask questions about content, tables, charts, diagrams, or scanned text.
     """)
 
+    status = gr.Markdown(STATUS_IDLE)
+
     with gr.Row():
         with gr.Column(scale=1):
             files = gr.File(
@@ -334,10 +359,16 @@ with gr.Blocks(
                 temperature = gr.Slider(0.0, 1.0, value=DEFAULT_TEMPERATURE, step=0.05, label="Temperature")
                 max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
 
-            submit_btn = gr.Button("Analyze Document", variant="primary", size="lg")
+            with gr.Row():
+                submit_btn = gr.Button("Analyze Document", variant="primary", size="lg")
+                clear_btn = gr.Button("Clear", variant="secondary", size="lg")
 
         with gr.Column(scale=1):
-            answer = gr.Textbox(label="Answer", lines=12)
+            answer = gr.Textbox(
+                label="Answer",
+                lines=12,
+                placeholder="The generated answer will stream here…",
+            )
             sources = gr.Textbox(label="Pages sent to the model", lines=4)
             gallery = gr.Gallery(
                 label="Pages sent to the model",
@@ -359,7 +390,14 @@ with gr.Blocks(
     submit_btn.click(
         fn=analyze_document,
         inputs=[files, question, max_pages, temperature, max_tokens],
-        outputs=[answer, gallery, sources],
+        outputs=[status, answer, gallery, sources],
+        show_progress="full",
+    )
+
+    clear_btn.click(
+        fn=clear_workspace,
+        inputs=None,
+        outputs=[files, question, max_pages, temperature, max_tokens, answer, gallery, sources, status],
     )
 
     gr.Markdown(f"""
