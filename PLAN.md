@@ -63,7 +63,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 ## Phase 2 – Real Multimodal RAG (Core Differentiator)
 
-### 11. [IN_PROGRESS] feat: simple page relevance ranking
+### 11. [DONE] feat: simple page relevance ranking
 - After converting pages to images, compute a cheap relevance score (keyword overlap or simple embedding) against the question and keep top-k pages.
 - Type: feat
 
