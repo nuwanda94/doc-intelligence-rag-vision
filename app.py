@@ -1,12 +1,13 @@
 import spaces
 import gradio as gr
 import torch
-from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
+from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, TextIteratorStreamer
 from qwen_vl_utils import process_vision_info
 from pdf2image import convert_from_path
 from PIL import Image
 import tempfile
 import os
+from threading import Thread
 from typing import List, Optional
 
 # -----------------------------
@@ -226,30 +227,34 @@ def analyze_document(
         return_tensors="pt"
     ).to(model.device)
 
-    # Generate
-    with torch.no_grad():
-        generated_ids = model.generate(
-            **inputs,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            do_sample=temperature > 0,
-            top_p=0.9
-        )
-
-    generated_ids_trimmed = [
-        out_ids[len(in_ids):] for in_ids, out_ids in zip(inputs.input_ids, generated_ids)
-    ]
-    answer = processor.batch_decode(
-        generated_ids_trimmed,
-        skip_special_tokens=True,
-        clean_up_tokenization_spaces=False
-    )[0]
-
-    # Simple gallery of source pages
     gallery = [(img, src) for img, src in zip(page_images, source_info)]
-
     sources_text = "\n".join([f"- {s}" for s in source_info])
-    return answer, gallery, sources_text
+
+    streamer = TextIteratorStreamer(
+        processor.tokenizer,
+        skip_prompt=True,
+        skip_special_tokens=True,
+    )
+    gen_kwargs = dict(
+        **inputs,
+        streamer=streamer,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        do_sample=temperature > 0,
+        top_p=0.9,
+    )
+    thread = Thread(target=model.generate, kwargs=gen_kwargs)
+    thread.start()
+
+    # Show sources immediately, then stream tokens into the answer box.
+    yield "", gallery, sources_text
+    partial = ""
+    for token in streamer:
+        partial += token
+        yield partial, gallery, sources_text
+    thread.join()
+    if not partial:
+        yield "(No answer generated.)", gallery, sources_text
 
 # -----------------------------
 # Gradio UI
@@ -305,7 +310,7 @@ with gr.Blocks(
     submit_btn.click(
         fn=analyze_document,
         inputs=[files, question, max_pages, temperature, max_tokens],
-        outputs=[answer, gallery, sources]
+        outputs=[answer, gallery, sources],
     )
 
     gr.Markdown("""
