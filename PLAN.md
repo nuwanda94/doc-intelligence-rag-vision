@@ -72,7 +72,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Update sources display accordingly.
 - Type: feat
 
-### 13. [TODO] feat: multi-turn conversation support
+### 13. [IN_PROGRESS] feat: multi-turn conversation support
 - Convert UI to chat-style with state for previous images + history.
 - Type: feat
 
