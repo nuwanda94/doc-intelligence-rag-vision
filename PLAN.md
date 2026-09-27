@@ -55,7 +55,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Extract constants (MAX_PAGES_DEFAULT, DPI, etc.).
 - Type: chore
 
-### 10. [IN_PROGRESS] feat: better loading states and Clear button
+### 10. [DONE] feat: better loading states and Clear button
 - Add clear button and improve progress/loading UX.
 - Type: feat
 
