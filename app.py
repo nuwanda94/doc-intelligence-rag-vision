@@ -69,6 +69,30 @@ SYSTEM_PROMPT = (
     "Be concise but complete. Lead with the direct answer, then supporting evidence with citations."
 )
 
+STRUCTURED_SYSTEM_PROMPT = (
+    "You are an expert document intelligence assistant. "
+    "Answer using only the provided document pages/images. Do not invent facts.\n\n"
+    "Output format (mandatory):\n"
+    "Respond with a single JSON object only. No markdown fences, no prose outside JSON.\n"
+    "Use this schema:\n"
+    "{\n"
+    '  "answer": "short direct answer string",\n'
+    '  "key_values": [{"key": "string", "value": "string", "page": "source label"}],\n'
+    '  "tables": [{\n'
+    '    "title": "string",\n'
+    '    "page": "source label",\n'
+    '    "headers": ["col1", "col2"],\n'
+    '    "rows": [["cell", "cell"]]\n'
+    "  }],\n"
+    '  "citations": ["source labels that support the answer"]\n'
+    "}\n"
+    "Rules:\n"
+    "- Reproduce table values exactly (numbers, units, headers).\n"
+    "- If a field is unknown, use an empty list or empty string — do not guess.\n"
+    "- Cite pages using the source labels shown with the images.\n"
+    "- Use earlier questions and answers as context, but ground every new claim in the current pages.\n"
+)
+
 processor = AutoProcessor.from_pretrained(
     MODEL_ID,
     trust_remote_code=True,
@@ -98,11 +122,7 @@ def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Ima
 
 
 def adaptive_dpi(max_pages: int) -> int:
-    """Choose PDF rasterization DPI from how many pages will be converted.
-
-    Higher page counts use a lower DPI to limit memory and conversion time
-    on the free tier, while short documents keep higher detail.
-    """
+    """Choose PDF rasterization DPI from how many pages will be converted.\n\n    Higher page counts use a lower DPI to limit memory and conversion time\n    on the free tier, while short documents keep higher detail.\n    """
     if max_pages > DPI_PAGE_THRESHOLD:
         return DPI_LOW
     return DPI_HIGH
@@ -122,25 +142,19 @@ def tokenize_query(text: str) -> set:
 
 
 def page_relevance_score(source_label: str, question: str, page_index: int) -> float:
-    """Cheap relevance: keyword overlap with the source label plus explicit page refs.
-
-    Images have no OCR yet, so the score uses the question text and the
-    human-readable source label (filename + page number).
-    """
+    """Cheap relevance: keyword overlap with the source label plus explicit page refs.\n\n    Images have no OCR yet, so the score uses the question text and the\n    human-readable source label (filename + page number).\n    """
     q = question or ""
     q_tokens = tokenize_query(q)
-    label_tokens = tokenize_query(source_label.replace("—", " ").replace("-", " ").replace(".", " "))
+    label_tokens = tokenize_query(source_label.replace("\u2014", " ").replace("-", " ").replace(".", " "))
 
     overlap = len(q_tokens & label_tokens)
     score = float(overlap)
 
     mentioned_pages = {int(n) for n in _PAGE_REF_RE.findall(q)}
-    # source labels use 1-based page numbers: "report.pdf — page 3"
     page_nums = {int(n) for n in re.findall(r"\bpage\s*(\d+)\b", source_label, flags=re.IGNORECASE)}
     if mentioned_pages and page_nums & mentioned_pages:
         score += 5.0
 
-    # Slight recency-of-order prior so ties keep earlier pages first after sort.
     score += max(0.0, 0.05 * (1.0 / (page_index + 1)))
     return score
 
@@ -151,11 +165,7 @@ def rank_pages(
     question: str,
     top_k: int = TOP_K_PAGES,
 ) -> Tuple[List[Image.Image], List[str], List[float], List[str]]:
-    """Split pages into top-k for the VLM and the remainder not sent.
-
-    Returns (selected_images, selected_labels, selected_scores, omitted_labels).
-    Selected lists are ordered by descending relevance score.
-    """
+    """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels).\n    Selected lists are ordered by descending relevance score.\n    """
     if not page_images:
         return [], [], [], []
 
@@ -176,10 +186,10 @@ def rank_pages(
 
 def label_sent_page(src: str, index: int, total: int, score: Optional[float] = None) -> str:
     """Caption for a page that was actually sent to the VLM."""
-    base = f"Sent to model · {index}/{total} · {src}"
+    base = f"Sent to model \u00b7 {index}/{total} \u00b7 {src}"
     if score is None:
         return base
-    return f"{base} · score {score:.2f}"
+    return f"{base} \u00b7 score {score:.2f}"
 
 
 def build_gallery_and_sources(
@@ -239,10 +249,12 @@ def build_vlm_messages(
     page_images: List[Image.Image],
     source_info: List[str],
     question: str,
+    structured: bool = False,
 ) -> List[Dict[str, Any]]:
     """System + prior text turns + current user turn with ranked page images."""
+    system = STRUCTURED_SYSTEM_PROMPT if structured else SYSTEM_PROMPT
     messages: List[Dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "system", "content": system},
     ]
 
     prior = history or []
@@ -260,7 +272,14 @@ def build_vlm_messages(
     for img, src in zip(page_images, source_info):
         content.append({"type": "image", "image": img})
         content.append({"type": "text", "text": f"[Source: {src}]"})
-    content.append({"type": "text", "text": question})
+    user_text = question
+    if structured:
+        user_text = (
+            question
+            + "\n\nReturn only valid JSON matching the required schema "
+            "(answer, key_values, tables, citations)."
+        )
+    content.append({"type": "text", "text": user_text})
     messages.append({"role": "user", "content": content})
     return messages
 
@@ -274,6 +293,7 @@ def clear_workspace():
         MAX_PAGES_DEFAULT,
         DEFAULT_TEMPERATURE,
         DEFAULT_MAX_NEW_TOKENS,
+        False,
         [],
         "",
         STATUS_IDLE,
@@ -357,11 +377,7 @@ def validate_uploads(files: Optional[List], question: str) -> List[str]:
 
 
 def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Optional[int] = None) -> List[Image.Image]:
-    """Convert PDF pages to images (limited for free tier).
-
-    DPI is chosen adaptively from max_pages when not provided:
-    150 for short docs (≤ DPI_PAGE_THRESHOLD pages), 120 for longer ones.
-    """
+    """Convert PDF pages to images (limited for free tier).\n\n    DPI is chosen adaptively from max_pages when not provided:\n    150 for short docs (≤ DPI_PAGE_THRESHOLD pages), 120 for longer ones.\n    """
     if dpi is None:
         dpi = adaptive_dpi(max_pages)
     try:
@@ -414,13 +430,14 @@ def chat_analyze(
     max_pages: int = MAX_PAGES_DEFAULT,
     temperature: float = DEFAULT_TEMPERATURE,
     max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+    structured_output: bool = False,
 ):
     """One chat turn: reuse cached pages when possible, re-rank, stream the reply."""
     history = list(history or [])
     question = (message or "").strip()
     pending = history + [{"role": "user", "content": question}]
 
-    yield STATUS_PREPARING, pending + [{"role": "assistant", "content": "Preparing document…"}], doc_state, None, "", gr.update(value="")
+    yield STATUS_PREPARING, pending + [{"role": "assistant", "content": "Preparing document\u2026"}], doc_state, None, "", gr.update(value="")
 
     sig = file_signature(files)
     cached_sig = (doc_state or {}).get("file_sig")
@@ -442,7 +459,9 @@ def chat_analyze(
         all_images, all_sources, question, top_k=TOP_K_PAGES
     )
 
-    messages = build_vlm_messages(history, page_images, source_info, question)
+    messages = build_vlm_messages(
+        history, page_images, source_info, question, structured=bool(structured_output)
+    )
 
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     image_inputs, video_inputs = process_vision_info(messages)
@@ -534,6 +553,11 @@ with gr.Blocks(
                 max_pages = gr.Slider(1, MAX_PAGES_SLIDER_MAX, value=MAX_PAGES_DEFAULT, step=1, label="Max PDF pages to process")
                 temperature = gr.Slider(0.0, 1.0, value=DEFAULT_TEMPERATURE, step=0.05, label="Temperature")
                 max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
+                structured_output = gr.Checkbox(
+                    label="Structured JSON output",
+                    value=False,
+                    info="Ask the model for JSON with answer, key-value pairs, tables, and citations.",
+                )
 
             with gr.Row():
                 submit_btn = gr.Button("Send", variant="primary", size="lg")
@@ -560,13 +584,13 @@ with gr.Blocks(
 
     submit_btn.click(
         fn=chat_analyze,
-        inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens],
+        inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens, structured_output],
         outputs=[status, chatbot, doc_state, gallery, sources, question],
         show_progress="full",
     )
     question.submit(
         fn=chat_analyze,
-        inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens],
+        inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens, structured_output],
         outputs=[status, chatbot, doc_state, gallery, sources, question],
         show_progress="full",
     )
@@ -574,7 +598,7 @@ with gr.Blocks(
     clear_btn.click(
         fn=clear_workspace,
         inputs=None,
-        outputs=[files, chatbot, doc_state, max_pages, temperature, max_tokens, gallery, sources, status, question],
+        outputs=[files, chatbot, doc_state, max_pages, temperature, max_tokens, structured_output, gallery, sources, status, question],
     )
 
     gr.Markdown(f"""
