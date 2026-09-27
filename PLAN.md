@@ -84,7 +84,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Optional mode that asks the model for structured JSON.
 - Type: feat
 
-### 15. [TODO] docs: update README to accurately reflect current capabilities
+### 15. [DONE] docs: update README to accurately reflect current capabilities
 - Remove over-claim of "RAG" until Phase 2 is complete; document limitations honestly.
 - Type: docs
 
