@@ -5,7 +5,6 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor, Text
 from qwen_vl_utils import process_vision_info
 from pdf2image import convert_from_path
 from PIL import Image
-import tempfile
 import os
 from threading import Thread
 from typing import List, Optional, Tuple
@@ -22,6 +21,15 @@ MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB per file
 DPI_HIGH = 150  # used when processing few pages
 DPI_LOW = 120   # used when processing many pages (reduces memory / latency)
 DPI_PAGE_THRESHOLD = 4  # switch to DPI_LOW when max_pages exceeds this
+MAX_PAGES_DEFAULT = 6
+MAX_PAGES_SLIDER_MAX = 10
+DEFAULT_TEMPERATURE = 0.3
+DEFAULT_MAX_NEW_TOKENS = 512
+MIN_MAX_NEW_TOKENS = 128
+MAX_MAX_NEW_TOKENS = 1024
+TOP_P = 0.9
+GPU_DURATION_SECONDS = 120
+QUEUE_MAX_SIZE = 10
 
 SYSTEM_PROMPT = (
     "You are an expert document intelligence assistant. "
@@ -180,7 +188,7 @@ def validate_uploads(files: Optional[List], question: str) -> List[str]:
     return validated_paths
 
 
-def pdf_to_images(pdf_path: str, max_pages: int = 8, dpi: Optional[int] = None) -> List[Image.Image]:
+def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Optional[int] = None) -> List[Image.Image]:
     """Convert PDF pages to images (limited for free tier).
 
     DPI is chosen adaptively from max_pages when not provided:
@@ -200,13 +208,13 @@ def pdf_to_images(pdf_path: str, max_pages: int = 8, dpi: Optional[int] = None) 
         )
     return [prepare_image(img) for img in images]
 
-@spaces.GPU(duration=120)
+@spaces.GPU(duration=GPU_DURATION_SECONDS)
 def analyze_document(
     files: Optional[List],
     question: str,
-    max_pages: int = 6,
-    temperature: float = 0.3,
-    max_new_tokens: int = 512
+    max_pages: int = MAX_PAGES_DEFAULT,
+    temperature: float = DEFAULT_TEMPERATURE,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
 ):
     paths = validate_uploads(files, question)
 
@@ -277,7 +285,7 @@ def analyze_document(
         max_new_tokens=max_new_tokens,
         temperature=temperature,
         do_sample=temperature > 0,
-        top_p=0.9,
+        top_p=TOP_P,
     )
     thread = Thread(target=model.generate, kwargs=gen_kwargs)
     thread.start()
@@ -322,14 +330,14 @@ with gr.Blocks(
                 lines=3
             )
             with gr.Accordion("Advanced Settings", open=False):
-                max_pages = gr.Slider(1, 10, value=6, step=1, label="Max PDF pages to process")
-                temperature = gr.Slider(0.0, 1.0, value=0.3, step=0.05, label="Temperature")
-                max_tokens = gr.Slider(128, 1024, value=512, step=64, label="Max new tokens")
+                max_pages = gr.Slider(1, MAX_PAGES_SLIDER_MAX, value=MAX_PAGES_DEFAULT, step=1, label="Max PDF pages to process")
+                temperature = gr.Slider(0.0, 1.0, value=DEFAULT_TEMPERATURE, step=0.05, label="Temperature")
+                max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
 
             submit_btn = gr.Button("Analyze Document", variant="primary", size="lg")
 
         with gr.Column(scale=1):
-            answer = gr.Textbox(label="Answer", lines=12)          # ← fixed
+            answer = gr.Textbox(label="Answer", lines=12)
             sources = gr.Textbox(label="Pages sent to the model", lines=4)
             gallery = gr.Gallery(
                 label="Pages sent to the model",
@@ -354,11 +362,11 @@ with gr.Blocks(
         outputs=[answer, gallery, sources],
     )
 
-    gr.Markdown("""
+    gr.Markdown(f"""
     ---
     **Tech**: Qwen2.5-VL-3B-Instruct · Gradio · ZeroGPU  
-    **Limitations**: Free tier processes up to ~8 pages. Complex multi-document RAG can be added later.
+    **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Complex multi-document RAG can be added later.
     """)
 
 if __name__ == "__main__":
-    demo.queue(max_size=10).launch()
+    demo.queue(max_size=QUEUE_MAX_SIZE).launch()
