@@ -80,7 +80,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 ## Phase 3 – Production Polish
 
-### 14. [TODO] feat: structured output mode (JSON tables / key-value)
+### 14. [IN_PROGRESS] feat: structured output mode (JSON tables / key-value)
 - Optional mode that asks the model for structured JSON.
 - Type: feat
 
