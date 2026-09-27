@@ -18,6 +18,9 @@ MAX_PIXELS = 1280 * 28 * 28
 MAX_IMAGE_SIDE = 1280
 ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB per file
+DPI_HIGH = 150  # used when processing few pages
+DPI_LOW = 120   # used when processing many pages (reduces memory / latency)
+DPI_PAGE_THRESHOLD = 4  # switch to DPI_LOW when max_pages exceeds this
 
 processor = AutoProcessor.from_pretrained(
     MODEL_ID,
@@ -45,6 +48,17 @@ def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Ima
         new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
         img = img.resize(new_size, Image.Resampling.LANCZOS)
     return img
+
+
+def adaptive_dpi(max_pages: int) -> int:
+    """Choose PDF rasterization DPI from how many pages will be converted.
+
+    Higher page counts use a lower DPI to limit memory and conversion time
+    on the free tier, while short documents keep higher detail.
+    """
+    if max_pages > DPI_PAGE_THRESHOLD:
+        return DPI_LOW
+    return DPI_HIGH
 
 
 def _file_path(file_obj) -> str:
@@ -129,8 +143,14 @@ def validate_uploads(files: Optional[List], question: str) -> List[str]:
     return validated_paths
 
 
-def pdf_to_images(pdf_path: str, max_pages: int = 8, dpi: int = 150) -> List[Image.Image]:
-    """Convert PDF pages to images (limited for free tier)."""
+def pdf_to_images(pdf_path: str, max_pages: int = 8, dpi: Optional[int] = None) -> List[Image.Image]:
+    """Convert PDF pages to images (limited for free tier).
+
+    DPI is chosen adaptively from max_pages when not provided:
+    150 for short docs (≤ DPI_PAGE_THRESHOLD pages), 120 for longer ones.
+    """
+    if dpi is None:
+        dpi = adaptive_dpi(max_pages)
     try:
         images = convert_from_path(pdf_path, dpi=dpi, first_page=1, last_page=max_pages)
     except Exception as e:
@@ -155,13 +175,14 @@ def analyze_document(
 
     page_images = []
     source_info = []
+    dpi = adaptive_dpi(max_pages)
 
     for path in paths:
         ext = os.path.splitext(path)[1].lower()
         name = os.path.basename(path)
 
         if ext == ".pdf":
-            imgs = pdf_to_images(path, max_pages=max_pages)
+            imgs = pdf_to_images(path, max_pages=max_pages, dpi=dpi)
             page_images.extend(imgs)
             source_info.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
         else:
