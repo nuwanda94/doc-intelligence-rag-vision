@@ -50,7 +50,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Ideally rank or at least document which pages were sent; improve gallery labeling.
 - Type: feat
 
-.### 9. [DONE] chore: clean dead code and magic numbers
+### 9. [DONE] chore: clean dead code and magic numbers
 - Remove unused `tempfile` import.
 - Extract constants (MAX_PAGES_DEFAULT, DPI, etc.).
 - Type: chore
