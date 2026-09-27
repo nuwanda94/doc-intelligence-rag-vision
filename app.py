@@ -23,6 +23,22 @@ DPI_HIGH = 150  # used when processing few pages
 DPI_LOW = 120   # used when processing many pages (reduces memory / latency)
 DPI_PAGE_THRESHOLD = 4  # switch to DPI_LOW when max_pages exceeds this
 
+SYSTEM_PROMPT = (
+    "You are an expert document intelligence assistant. "
+    "Answer using only the provided document pages/images. Do not invent facts.\n\n"
+    "Citations:\n"
+    "- Cite the source page for every claim using the labels shown with the images "
+    "(e.g. [page 2] or [filename — page 3]).\n"
+    "- If several pages support a point, list each relevant page.\n"
+    "- If the answer cannot be found in the provided pages, say so clearly and do not guess.\n\n"
+    "Tables and charts:\n"
+    "- Reproduce table values exactly (numbers, units, column/row headers). "
+    "Prefer a Markdown table when extracting tabular data.\n"
+    "- For charts and diagrams, state axes, units, legends, and the specific data points or trends asked about.\n"
+    "- Preserve currency symbols, percentages, and significant figures as written.\n\n"
+    "Be concise but complete. Lead with the direct answer, then supporting evidence with citations."
+)
+
 processor = AutoProcessor.from_pretrained(
     MODEL_ID,
     trust_remote_code=True,
@@ -201,14 +217,15 @@ def analyze_document(
 
     # Build multimodal messages (Qwen2.5-VL style)
     content = []
-    for img in page_images:
+    for img, src in zip(page_images, source_info):
         content.append({"type": "image", "image": img})
+        content.append({"type": "text", "text": f"[Source: {src}]"})
     content.append({"type": "text", "text": question})
 
     messages = [
         {
             "role": "system",
-            "content": "You are an expert document intelligence assistant. Answer questions accurately based only on the provided document pages/images. Cite page numbers when possible. Extract tables, numbers, and key entities precisely. If information is missing, say so clearly."
+            "content": SYSTEM_PROMPT,
         },
         {
             "role": "user",
