@@ -15,6 +15,7 @@ from typing import List, Optional
 MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
 MIN_PIXELS = 256 * 28 * 28
 MAX_PIXELS = 1280 * 28 * 28
+MAX_IMAGE_SIDE = 1280
 
 processor = AutoProcessor.from_pretrained(
     MODEL_ID,
@@ -32,11 +33,23 @@ model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
 # -----------------------------
 # Helpers
 # -----------------------------
+def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Image:
+    """Convert to RGB and downscale so the longest side is at most max_side."""
+    img = img.convert("RGB")
+    w, h = img.size
+    longest = max(w, h)
+    if longest > max_side:
+        scale = max_side / float(longest)
+        new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+        img = img.resize(new_size, Image.Resampling.LANCZOS)
+    return img
+
+
 def pdf_to_images(pdf_path: str, max_pages: int = 8, dpi: int = 150) -> List[Image.Image]:
     """Convert PDF pages to images (limited for free tier)."""
     try:
         images = convert_from_path(pdf_path, dpi=dpi, first_page=1, last_page=max_pages)
-        return [img.convert("RGB") for img in images]
+        return [prepare_image(img) for img in images]
     except Exception as e:
         raise gr.Error(f"Failed to process PDF: {str(e)}")
 
@@ -66,7 +79,7 @@ def analyze_document(
             page_images.extend(imgs)
             source_info.extend([f"PDF page {i+1}" for i in range(len(imgs))])
         elif ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
-            img = Image.open(path).convert("RGB")
+            img = prepare_image(Image.open(path))
             page_images.append(img)
             source_info.append("Uploaded image")
         else:
