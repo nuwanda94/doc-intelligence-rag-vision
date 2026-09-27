@@ -13,8 +13,15 @@ from typing import List, Optional
 # Model Loading (module level for ZeroGPU)
 # -----------------------------
 MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
+MIN_PIXELS = 256 * 28 * 28
+MAX_PIXELS = 1280 * 28 * 28
 
-processor = AutoProcessor.from_pretrained(MODEL_ID, trust_remote_code=True)
+processor = AutoProcessor.from_pretrained(
+    MODEL_ID,
+    trust_remote_code=True,
+    min_pixels=MIN_PIXELS,
+    max_pixels=MAX_PIXELS,
+)
 model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
     MODEL_ID,
     torch_dtype=torch.bfloat16,
