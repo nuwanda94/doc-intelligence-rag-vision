@@ -38,7 +38,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Expose or keep simple heuristic.
 - Type: feat
 
-### 6. [TODO] feat: stream the model answer
+### 6. [IN_PROGRESS] feat: stream the model answer
 - Use Gradio streaming / yield partial tokens from model.generate.
 - Type: feat
 
