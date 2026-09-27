@@ -67,7 +67,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - After converting pages to images, compute a cheap relevance score (keyword overlap or simple embedding) against the question and keep top-k pages.
 - Type: feat
 
-### 12. [TODO] feat: integrate page ranking into the VLM pipeline
+### 12. [DONE] feat: integrate page ranking into the VLM pipeline
 - Only send the top-k ranked pages to the VLM.
 - Update sources display accordingly.
 - Type: feat
