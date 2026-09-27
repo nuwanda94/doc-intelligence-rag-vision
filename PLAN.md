@@ -42,7 +42,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Use Gradio streaming / yield partial tokens from model.generate.
 - Type: feat
 
-### 7. [IN_PROGRESS] fix: improve system prompt for citations and tables
+### 7. [DONE] fix: improve system prompt for citations and tables
 - Strengthen system prompt to require page citations and precise table/chart extraction.
 - Type: fix
 
