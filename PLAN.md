@@ -88,7 +88,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Remove over-claim of "RAG" until Phase 2 is complete; document limitations honestly.
 - Type: docs
 
-### 16. [TODO] chore: add basic smoke-test GitHub Action
+### 16. [DONE] chore: add basic smoke-test GitHub Action
 - Simple workflow that checks app.py imports and syntax.
 - Type: chore
 
