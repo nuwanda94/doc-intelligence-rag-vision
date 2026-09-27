@@ -8,7 +8,7 @@ from PIL import Image
 import os
 import re
 from threading import Thread
-from typing import List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 # -----------------------------
 # Model Loading (module level for ZeroGPU)
@@ -32,10 +32,11 @@ MAX_MAX_NEW_TOKENS = 1024
 TOP_P = 0.9
 GPU_DURATION_SECONDS = 120
 QUEUE_MAX_SIZE = 10
-STATUS_IDLE = "Ready — upload a document and ask a question."
+MAX_HISTORY_TURNS = 8  # prior user/assistant pairs kept in the VLM prompt
+STATUS_IDLE = "Ready — upload a document and start a conversation."
 STATUS_PREPARING = "Preparing pages and allocating GPU… this can take a minute on a cold start."
 STATUS_GENERATING = "Generating answer…"
-STATUS_DONE = "Done."
+STATUS_DONE = "Done. Ask a follow-up or clear to start over."
 
 _TOKEN_RE = re.compile(r"[a-z0-9]+")
 _PAGE_REF_RE = re.compile(r"\bpage\s*(\d+)\b", re.IGNORECASE)
@@ -61,6 +62,10 @@ SYSTEM_PROMPT = (
     "Prefer a Markdown table when extracting tabular data.\n"
     "- For charts and diagrams, state axes, units, legends, and the specific data points or trends asked about.\n"
     "- Preserve currency symbols, percentages, and significant figures as written.\n\n"
+    "Multi-turn:\n"
+    "- Use earlier questions and answers as context, but ground every new claim in the current pages.\n"
+    "- If a follow-up refers to 'that', 'the table', or a previous figure, resolve it from history "
+    "and still cite the page.\n\n"
     "Be concise but complete. Lead with the direct answer, then supporting evidence with citations."
 )
 
@@ -206,18 +211,73 @@ def build_gallery_and_sources(
     return gallery, "\n".join(lines)
 
 
+def file_signature(files: Optional[List]) -> Tuple[str, ...]:
+    if not files:
+        return ()
+    return tuple(_file_path(f) for f in files)
+
+
+def message_text(content: Any) -> str:
+    """Normalize a Gradio chat message content field to plain text."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            if isinstance(item, str):
+                parts.append(item)
+            elif isinstance(item, dict) and item.get("text"):
+                parts.append(str(item["text"]))
+        return "\n".join(parts)
+    return str(content)
+
+
+def build_vlm_messages(
+    history: List[Dict[str, Any]],
+    page_images: List[Image.Image],
+    source_info: List[str],
+    question: str,
+) -> List[Dict[str, Any]]:
+    """System + prior text turns + current user turn with ranked page images."""
+    messages: List[Dict[str, Any]] = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+    ]
+
+    prior = history or []
+    if MAX_HISTORY_TURNS > 0 and len(prior) > MAX_HISTORY_TURNS * 2:
+        prior = prior[-(MAX_HISTORY_TURNS * 2):]
+
+    for turn in prior:
+        role = turn.get("role")
+        text = message_text(turn.get("content")).strip()
+        if role not in ("user", "assistant") or not text:
+            continue
+        messages.append({"role": role, "content": text})
+
+    content: List[Dict[str, Any]] = []
+    for img, src in zip(page_images, source_info):
+        content.append({"type": "image", "image": img})
+        content.append({"type": "text", "text": f"[Source: {src}]"})
+    content.append({"type": "text", "text": question})
+    messages.append({"role": "user", "content": content})
+    return messages
+
+
 def clear_workspace():
-    """Reset uploads, question, outputs, and status to a clean idle state."""
+    """Reset uploads, chat history, cached pages, outputs, and status."""
     return (
         None,
-        "",
+        [],
+        None,
         MAX_PAGES_DEFAULT,
         DEFAULT_TEMPERATURE,
         DEFAULT_MAX_NEW_TOKENS,
-        "",
         [],
         "",
         STATUS_IDLE,
+        gr.update(value=""),
     )
 
 
@@ -259,7 +319,7 @@ def validate_uploads(files: Optional[List], question: str) -> List[str]:
             continue
 
         if ext not in ALLOWED_EXTENSIONS:
-            unsupported.append(name or f"(no extension)")
+            unsupported.append(name or "(no extension)")
             continue
 
         validated_paths.append(path)
@@ -316,20 +376,10 @@ def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Option
         )
     return [prepare_image(img) for img in images]
 
-@spaces.GPU(duration=GPU_DURATION_SECONDS)
-def analyze_document(
-    files: Optional[List],
-    question: str,
-    max_pages: int = MAX_PAGES_DEFAULT,
-    temperature: float = DEFAULT_TEMPERATURE,
-    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS
-):
-    yield STATUS_PREPARING, "Preparing document…", None, ""
 
-    paths = validate_uploads(files, question)
-
-    all_images = []
-    all_sources = []
+def load_pages_from_paths(paths: List[str], max_pages: int) -> Tuple[List[Image.Image], List[str]]:
+    all_images: List[Image.Image] = []
+    all_sources: List[str] = []
     dpi = adaptive_dpi(max_pages)
 
     for path in paths:
@@ -352,31 +402,48 @@ def analyze_document(
 
     if not all_images:
         raise gr.Error("No pages could be extracted from the uploaded files.")
+    return all_images, all_sources
 
-    # Rank every extracted page, then forward only the top-k images to the VLM.
+
+@spaces.GPU(duration=GPU_DURATION_SECONDS)
+def chat_analyze(
+    message: str,
+    history: Optional[List[Dict[str, Any]]],
+    files: Optional[List],
+    doc_state: Optional[Dict[str, Any]],
+    max_pages: int = MAX_PAGES_DEFAULT,
+    temperature: float = DEFAULT_TEMPERATURE,
+    max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
+):
+    """One chat turn: reuse cached pages when possible, re-rank, stream the reply."""
+    history = list(history or [])
+    question = (message or "").strip()
+    pending = history + [{"role": "user", "content": question}]
+
+    yield STATUS_PREPARING, pending + [{"role": "assistant", "content": "Preparing document…"}], doc_state, None, "", gr.update(value="")
+
+    sig = file_signature(files)
+    cached_sig = (doc_state or {}).get("file_sig")
+    if doc_state is None or not doc_state.get("images") or cached_sig != sig:
+        paths = validate_uploads(files, question)
+        all_images, all_sources = load_pages_from_paths(paths, max_pages)
+        doc_state = {
+            "images": all_images,
+            "sources": all_sources,
+            "file_sig": sig,
+        }
+    elif not question:
+        raise gr.Error("Please enter a question about the uploaded document.")
+
+    all_images = doc_state["images"]
+    all_sources = doc_state["sources"]
+
     page_images, source_info, scores, omitted_labels = rank_pages(
         all_images, all_sources, question, top_k=TOP_K_PAGES
     )
 
-    # Build multimodal messages from ranked pages only (Qwen2.5-VL style)
-    content = []
-    for img, src in zip(page_images, source_info):
-        content.append({"type": "image", "image": img})
-        content.append({"type": "text", "text": f"[Source: {src}]"})
-    content.append({"type": "text", "text": question})
+    messages = build_vlm_messages(history, page_images, source_info, question)
 
-    messages = [
-        {
-            "role": "system",
-            "content": SYSTEM_PROMPT,
-        },
-        {
-            "role": "user",
-            "content": content
-        }
-    ]
-
-    # Prepare inputs
     text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
     image_inputs, video_inputs = process_vision_info(messages)
     inputs = processor(
@@ -411,17 +478,19 @@ def analyze_document(
     thread = Thread(target=model.generate, kwargs=gen_kwargs)
     thread.start()
 
-    # Show sources immediately, then stream tokens into the answer box.
-    yield STATUS_GENERATING, "", gallery, sources_text
     partial = ""
+    streamed_history = pending + [{"role": "assistant", "content": ""}]
+    yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(value="")
     for token in streamer:
         partial += token
-        yield STATUS_GENERATING, partial, gallery, sources_text
+        streamed_history = pending + [{"role": "assistant", "content": partial}]
+        yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update()
     thread.join()
     if not partial:
-        yield STATUS_DONE, "(No answer generated.)", gallery, sources_text
-    else:
-        yield STATUS_DONE, partial, gallery, sources_text
+        partial = "(No answer generated.)"
+    final_history = pending + [{"role": "assistant", "content": partial}]
+    yield STATUS_DONE, final_history, doc_state, gallery, sources_text, gr.update(value="")
+
 
 # -----------------------------
 # Gradio UI
@@ -437,10 +506,12 @@ with gr.Blocks(
     # 📄 Multimodal Document Intelligence
     **RAG + Vision powered by Qwen2.5-VL-3B**
 
-    Upload PDFs or images → Ask questions about content, tables, charts, diagrams, or scanned text.
+    Upload PDFs or images, then chat about content, tables, charts, diagrams, or scanned text.
+    Follow-up questions reuse the extracted pages and prior answers.
     """)
 
     status = gr.Markdown(STATUS_IDLE)
+    doc_state = gr.State(None)
 
     with gr.Row():
         with gr.Column(scale=1):
@@ -449,10 +520,15 @@ with gr.Blocks(
                 file_count="multiple",
                 file_types=[".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp"]
             )
+            chatbot = gr.Chatbot(
+                label="Conversation",
+                height=420,
+                type="messages",
+            )
             question = gr.Textbox(
-                label="Your Question",
-                placeholder="e.g. What is the total revenue in Q3? Extract the key findings from the chart. Summarize page 2.",
-                lines=3
+                label="Your message",
+                placeholder="Ask about the document, then follow up (e.g. 'now extract the table on page 2').",
+                lines=3,
             )
             with gr.Accordion("Advanced Settings", open=False):
                 max_pages = gr.Slider(1, MAX_PAGES_SLIDER_MAX, value=MAX_PAGES_DEFAULT, step=1, label="Max PDF pages to process")
@@ -460,15 +536,10 @@ with gr.Blocks(
                 max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
 
             with gr.Row():
-                submit_btn = gr.Button("Analyze Document", variant="primary", size="lg")
+                submit_btn = gr.Button("Send", variant="primary", size="lg")
                 clear_btn = gr.Button("Clear", variant="secondary", size="lg")
 
         with gr.Column(scale=1):
-            answer = gr.Textbox(
-                label="Answer",
-                lines=12,
-                placeholder="The generated answer will stream here…",
-            )
             sources = gr.Textbox(label="Pages sent to the model", lines=6)
             gallery = gr.Gallery(
                 label="Pages sent to the model",
@@ -488,22 +559,28 @@ with gr.Blocks(
     )
 
     submit_btn.click(
-        fn=analyze_document,
-        inputs=[files, question, max_pages, temperature, max_tokens],
-        outputs=[status, answer, gallery, sources],
+        fn=chat_analyze,
+        inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens],
+        outputs=[status, chatbot, doc_state, gallery, sources, question],
+        show_progress="full",
+    )
+    question.submit(
+        fn=chat_analyze,
+        inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens],
+        outputs=[status, chatbot, doc_state, gallery, sources, question],
         show_progress="full",
     )
 
     clear_btn.click(
         fn=clear_workspace,
         inputs=None,
-        outputs=[files, question, max_pages, temperature, max_tokens, answer, gallery, sources, status],
+        outputs=[files, chatbot, doc_state, max_pages, temperature, max_tokens, gallery, sources, status, question],
     )
 
     gr.Markdown(f"""
     ---
     **Tech**: Qwen2.5-VL-3B-Instruct · Gradio · ZeroGPU  
-    **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Complex multi-document RAG can be added later.
+    **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Follow-ups reuse cached pages from the current upload.
     """)
 
 if __name__ == "__main__":
