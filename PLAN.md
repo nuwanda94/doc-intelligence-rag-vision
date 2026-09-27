@@ -28,7 +28,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Convert to RGB and optionally compress.
 - Type: feat
 
-### 4. [IN_PROGRESS] fix: improve input validation and error messages
+### 4. [DONE] fix: improve input validation and error messages
 - Validate file types explicitly and return clear Gradio errors for unsupported files.
 - Guard against empty uploads, zero pages, oversized files.
 - Type: fix

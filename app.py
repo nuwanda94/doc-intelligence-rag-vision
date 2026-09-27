@@ -16,6 +16,8 @@ MODEL_ID = "Qwen/Qwen2.5-VL-3B-Instruct"
 MIN_PIXELS = 256 * 28 * 28
 MAX_PIXELS = 1280 * 28 * 28
 MAX_IMAGE_SIDE = 1280
+ALLOWED_EXTENSIONS = {".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp"}
+MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024  # 25 MB per file
 
 processor = AutoProcessor.from_pretrained(
     MODEL_ID,
@@ -45,13 +47,101 @@ def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Ima
     return img
 
 
+def _file_path(file_obj) -> str:
+    path = file_obj.name if hasattr(file_obj, "name") else file_obj
+    if not path or not isinstance(path, str):
+        raise gr.Error("Could not read an uploaded file. Please try uploading again.")
+    return path
+
+
+def validate_uploads(files: Optional[List], question: str) -> List[str]:
+    """Raise clear Gradio errors for empty, unsupported, empty-byte, or oversized uploads."""
+    if not files:
+        raise gr.Error("Please upload at least one PDF or image file.")
+
+    if question is None or not str(question).strip():
+        raise gr.Error("Please enter a question about the uploaded document.")
+
+    validated_paths = []
+    oversized = []
+    unsupported = []
+    empty_files = []
+    missing = []
+
+    for f in files:
+        path = _file_path(f)
+        name = os.path.basename(path)
+        ext = os.path.splitext(path)[1].lower()
+
+        if not os.path.exists(path):
+            missing.append(name or path)
+            continue
+
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            missing.append(name or path)
+            continue
+
+        if size == 0:
+            empty_files.append(name)
+            continue
+
+        if size > MAX_FILE_SIZE_BYTES:
+            oversized.append(f"{name} ({size / (1024 * 1024):.1f} MB)")
+            continue
+
+        if ext not in ALLOWED_EXTENSIONS:
+            unsupported.append(name or f"(no extension)")
+            continue
+
+        validated_paths.append(path)
+
+    if missing:
+        raise gr.Error(
+            "Could not read the following upload(s): "
+            + ", ".join(missing)
+            + ". Please re-upload the file(s)."
+        )
+    if empty_files:
+        raise gr.Error(
+            "The following file(s) are empty: "
+            + ", ".join(empty_files)
+            + ". Upload a non-empty PDF or image."
+        )
+    if oversized:
+        limit_mb = MAX_FILE_SIZE_BYTES / (1024 * 1024)
+        raise gr.Error(
+            f"File(s) exceed the {limit_mb:.0f} MB limit: "
+            + ", ".join(oversized)
+            + ". Compress the file or upload a smaller document."
+        )
+    if unsupported:
+        allowed = ", ".join(sorted(ALLOWED_EXTENSIONS))
+        raise gr.Error(
+            "Unsupported file type(s): "
+            + ", ".join(unsupported)
+            + f". Allowed types: {allowed}."
+        )
+    if not validated_paths:
+        raise gr.Error("No valid PDF or image files found in the upload.")
+
+    return validated_paths
+
+
 def pdf_to_images(pdf_path: str, max_pages: int = 8, dpi: int = 150) -> List[Image.Image]:
     """Convert PDF pages to images (limited for free tier)."""
     try:
         images = convert_from_path(pdf_path, dpi=dpi, first_page=1, last_page=max_pages)
-        return [prepare_image(img) for img in images]
     except Exception as e:
-        raise gr.Error(f"Failed to process PDF: {str(e)}")
+        raise gr.Error(f"Failed to process PDF '{os.path.basename(pdf_path)}': {str(e)}")
+
+    if not images:
+        raise gr.Error(
+            f"PDF '{os.path.basename(pdf_path)}' has no readable pages. "
+            "Upload a PDF that contains at least one page."
+        )
+    return [prepare_image(img) for img in images]
 
 @spaces.GPU(duration=120)
 def analyze_document(
@@ -61,32 +151,31 @@ def analyze_document(
     temperature: float = 0.3,
     max_new_tokens: int = 512
 ):
-    if not files:
-        return "Please upload at least one PDF or image.", None, ""
-
-    if not question.strip():
-        return "Please enter a question.", None, ""
+    paths = validate_uploads(files, question)
 
     page_images = []
     source_info = []
 
-    for f in files:
-        path = f.name if hasattr(f, "name") else f
+    for path in paths:
         ext = os.path.splitext(path)[1].lower()
+        name = os.path.basename(path)
 
         if ext == ".pdf":
             imgs = pdf_to_images(path, max_pages=max_pages)
             page_images.extend(imgs)
-            source_info.extend([f"PDF page {i+1}" for i in range(len(imgs))])
-        elif ext in [".png", ".jpg", ".jpeg", ".webp", ".bmp"]:
-            img = prepare_image(Image.open(path))
-            page_images.append(img)
-            source_info.append("Uploaded image")
+            source_info.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
         else:
-            continue
+            try:
+                img = prepare_image(Image.open(path))
+            except Exception as e:
+                raise gr.Error(f"Failed to open image '{name}': {str(e)}")
+            if img.size[0] == 0 or img.size[1] == 0:
+                raise gr.Error(f"Image '{name}' has zero width or height.")
+            page_images.append(img)
+            source_info.append(name)
 
     if not page_images:
-        return "No valid PDF or image files found.", None, ""
+        raise gr.Error("No pages could be extracted from the uploaded files.")
 
     # Build multimodal messages (Qwen2.5-VL style)
     content = []
@@ -163,7 +252,7 @@ with gr.Blocks(
             files = gr.File(
                 label="Upload PDF(s) or Images",
                 file_count="multiple",
-                file_types=[".pdf", ".png", ".jpg", ".jpeg", ".webp"]
+                file_types=[".pdf", ".png", ".jpg", ".jpeg", ".webp", ".bmp"]
             )
             question = gr.Textbox(
                 label="Your Question",
