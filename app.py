@@ -6,6 +6,7 @@ from qwen_vl_utils import process_vision_info
 from pdf2image import convert_from_path
 from PIL import Image
 import os
+import re
 from threading import Thread
 from typing import List, Optional, Tuple
 
@@ -23,6 +24,7 @@ DPI_LOW = 120   # used when processing many pages (reduces memory / latency)
 DPI_PAGE_THRESHOLD = 4  # switch to DPI_LOW when max_pages exceeds this
 MAX_PAGES_DEFAULT = 6
 MAX_PAGES_SLIDER_MAX = 10
+TOP_K_PAGES = 4  # keep the highest-scoring pages after cheap ranking
 DEFAULT_TEMPERATURE = 0.3
 DEFAULT_MAX_NEW_TOKENS = 512
 MIN_MAX_NEW_TOKENS = 128
@@ -34,6 +36,17 @@ STATUS_IDLE = "Ready — upload a document and ask a question."
 STATUS_PREPARING = "Preparing pages and allocating GPU… this can take a minute on a cold start."
 STATUS_GENERATING = "Generating answer…"
 STATUS_DONE = "Done."
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_PAGE_REF_RE = re.compile(r"\bpage\s*(\d+)\b", re.IGNORECASE)
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at", "to", "for",
+    "from", "with", "by", "is", "are", "was", "were", "be", "been", "this", "that",
+    "these", "those", "it", "its", "as", "about", "into", "over", "under", "what",
+    "which", "who", "how", "why", "when", "where", "please", "show", "tell",
+    "give", "me", "my", "your", "you", "we", "our", "document", "page", "pages",
+    "pdf", "image", "file",
+})
 
 SYSTEM_PROMPT = (
     "You are an expert document intelligence assistant. "
@@ -95,6 +108,59 @@ def _file_path(file_obj) -> str:
     if not path or not isinstance(path, str):
         raise gr.Error("Could not read an uploaded file. Please try uploading again.")
     return path
+
+
+def tokenize_query(text: str) -> set:
+    """Lowercase alphanumeric tokens with stopwords removed."""
+    tokens = set(_TOKEN_RE.findall((text or "").lower()))
+    return {t for t in tokens if t not in _STOPWORDS and len(t) > 1}
+
+
+def page_relevance_score(source_label: str, question: str, page_index: int) -> float:
+    """Cheap relevance: keyword overlap with the source label plus explicit page refs.
+
+    Images have no OCR yet, so the score uses the question text and the
+    human-readable source label (filename + page number).
+    """
+    q = question or ""
+    q_tokens = tokenize_query(q)
+    label_tokens = tokenize_query(source_label.replace("—", " ").replace("-", " ").replace(".", " "))
+
+    overlap = len(q_tokens & label_tokens)
+    score = float(overlap)
+
+    mentioned_pages = {int(n) for n in _PAGE_REF_RE.findall(q)}
+    # source labels use 1-based page numbers: "report.pdf — page 3"
+    page_nums = {int(n) for n in re.findall(r"\bpage\s*(\d+)\b", source_label, flags=re.IGNORECASE)}
+    if mentioned_pages and page_nums & mentioned_pages:
+        score += 5.0
+
+    # Slight recency-of-order prior so ties keep earlier pages first after sort.
+    score += max(0.0, 0.05 * (1.0 / (page_index + 1)))
+    return score
+
+
+def rank_pages(
+    page_images: List[Image.Image],
+    source_info: List[str],
+    question: str,
+    top_k: int = TOP_K_PAGES,
+) -> Tuple[List[Image.Image], List[str], List[float]]:
+    """Return the top-k pages by cheap relevance score, preserving score order."""
+    if not page_images:
+        return [], [], []
+
+    scored = []
+    for i, (img, src) in enumerate(zip(page_images, source_info)):
+        scored.append((page_relevance_score(src, question, i), i, img, src))
+
+    scored.sort(key=lambda row: (-row[0], row[1]))
+    k = max(1, min(int(top_k), len(scored)))
+    selected = scored[:k]
+    images = [row[2] for row in selected]
+    labels = [row[3] for row in selected]
+    scores = [row[0] for row in selected]
+    return images, labels, scores
 
 
 def label_sent_page(src: str, index: int, total: int) -> str:
@@ -263,6 +329,10 @@ def analyze_document(
 
     if not page_images:
         raise gr.Error("No pages could be extracted from the uploaded files.")
+
+    page_images, source_info, _scores = rank_pages(
+        page_images, source_info, question, top_k=TOP_K_PAGES
+    )
 
     # Build multimodal messages (Qwen2.5-VL style)
     content = []
