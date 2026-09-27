@@ -12,7 +12,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 ## Phase 1 – Robustness & Quick Wins (High Priority)
 
-### 1. [TODO] fix: remove unused dependencies
+### 1. [IN_PROGRESS] fix: remove unused dependencies
 - Remove `faiss-cpu` and `sentence-transformers` from requirements.txt (they are not used).
 - Keep only what is actually imported/used.
 - Type: chore
