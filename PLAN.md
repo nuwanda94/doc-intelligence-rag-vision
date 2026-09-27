@@ -33,7 +33,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Guard against empty uploads, zero pages, oversized files.
 - Type: fix
 
-### 5. [IN_PROGRESS] feat: adaptive DPI for PDF conversion
+### 5. [DONE] feat: adaptive DPI for PDF conversion
 - Lower DPI for higher page counts (e.g. 120 for >4 pages, 150 otherwise).
 - Expose or keep simple heuristic.
 - Type: feat
