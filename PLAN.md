@@ -23,7 +23,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
   max_pixels=1280*28*28
 - Type: fix
 
-### 3. [TODO] feat: resize and compress images before inference
+### 3. [IN_PROGRESS] feat: resize and compress images before inference
 - After loading each page/image, resize so max side ≤ 1280 px.
 - Convert to RGB and optionally compress.
 - Type: feat
