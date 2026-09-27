@@ -1,0 +1,12 @@
+gradio>=4.44.0
+spaces
+torch
+torchvision
+transformers>=4.49.0
+accelerate
+qwen-vl-utils==0.0.8
+pdf2image
+Pillow
+faiss-cpu
+sentence-transformers
+numpy
