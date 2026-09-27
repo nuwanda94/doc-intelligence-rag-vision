@@ -145,10 +145,14 @@ def rank_pages(
     source_info: List[str],
     question: str,
     top_k: int = TOP_K_PAGES,
-) -> Tuple[List[Image.Image], List[str], List[float]]:
-    """Return the top-k pages by cheap relevance score, preserving score order."""
+) -> Tuple[List[Image.Image], List[str], List[float], List[str]]:
+    """Split pages into top-k for the VLM and the remainder not sent.
+
+    Returns (selected_images, selected_labels, selected_scores, omitted_labels).
+    Selected lists are ordered by descending relevance score.
+    """
     if not page_images:
-        return [], [], []
+        return [], [], [], []
 
     scored = []
     for i, (img, src) in enumerate(zip(page_images, source_info)):
@@ -157,30 +161,49 @@ def rank_pages(
     scored.sort(key=lambda row: (-row[0], row[1]))
     k = max(1, min(int(top_k), len(scored)))
     selected = scored[:k]
+    omitted = scored[k:]
     images = [row[2] for row in selected]
     labels = [row[3] for row in selected]
     scores = [row[0] for row in selected]
-    return images, labels, scores
+    omitted_labels = [row[3] for row in omitted]
+    return images, labels, scores, omitted_labels
 
 
-def label_sent_page(src: str, index: int, total: int) -> str:
+def label_sent_page(src: str, index: int, total: int, score: Optional[float] = None) -> str:
     """Caption for a page that was actually sent to the VLM."""
-    return f"Sent to model · {index}/{total} · {src}"
+    base = f"Sent to model · {index}/{total} · {src}"
+    if score is None:
+        return base
+    return f"{base} · score {score:.2f}"
 
 
 def build_gallery_and_sources(
     page_images: List[Image.Image],
     source_info: List[str],
+    scores: Optional[List[float]] = None,
+    omitted_labels: Optional[List[str]] = None,
+    total_extracted: Optional[int] = None,
 ) -> Tuple[List[Tuple[Image.Image, str]], str]:
-    """Gallery + text listing only the pages forwarded to the model."""
-    total = len(source_info)
-    gallery = [
-        (img, label_sent_page(src, i + 1, total))
-        for i, (img, src) in enumerate(zip(page_images, source_info))
-    ]
-    header = f"Pages sent to the model ({total}):"
-    sources_text = header + "\n" + "\n".join([f"- {s}" for s in source_info])
-    return gallery, sources_text
+    """Gallery of pages forwarded to the model, plus a ranking-aware source list."""
+    sent = len(source_info)
+    extracted = total_extracted if total_extracted is not None else sent
+    gallery = []
+    for i, (img, src) in enumerate(zip(page_images, source_info)):
+        score = scores[i] if scores and i < len(scores) else None
+        gallery.append((img, label_sent_page(src, i + 1, sent, score)))
+
+    header = f"Pages sent to the model ({sent} of {extracted} extracted):"
+    lines = [header]
+    for i, src in enumerate(source_info):
+        if scores and i < len(scores):
+            lines.append(f"- {src} (relevance {scores[i]:.2f})")
+        else:
+            lines.append(f"- {src}")
+    if omitted_labels:
+        lines.append("")
+        lines.append(f"Not sent to the model ({len(omitted_labels)}):")
+        lines.extend([f"- {src}" for src in omitted_labels])
+    return gallery, "\n".join(lines)
 
 
 def clear_workspace():
@@ -305,8 +328,8 @@ def analyze_document(
 
     paths = validate_uploads(files, question)
 
-    page_images = []
-    source_info = []
+    all_images = []
+    all_sources = []
     dpi = adaptive_dpi(max_pages)
 
     for path in paths:
@@ -315,8 +338,8 @@ def analyze_document(
 
         if ext == ".pdf":
             imgs = pdf_to_images(path, max_pages=max_pages, dpi=dpi)
-            page_images.extend(imgs)
-            source_info.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
+            all_images.extend(imgs)
+            all_sources.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
         else:
             try:
                 img = prepare_image(Image.open(path))
@@ -324,17 +347,18 @@ def analyze_document(
                 raise gr.Error(f"Failed to open image '{name}': {str(e)}")
             if img.size[0] == 0 or img.size[1] == 0:
                 raise gr.Error(f"Image '{name}' has zero width or height.")
-            page_images.append(img)
-            source_info.append(name)
+            all_images.append(img)
+            all_sources.append(name)
 
-    if not page_images:
+    if not all_images:
         raise gr.Error("No pages could be extracted from the uploaded files.")
 
-    page_images, source_info, _scores = rank_pages(
-        page_images, source_info, question, top_k=TOP_K_PAGES
+    # Rank every extracted page, then forward only the top-k images to the VLM.
+    page_images, source_info, scores, omitted_labels = rank_pages(
+        all_images, all_sources, question, top_k=TOP_K_PAGES
     )
 
-    # Build multimodal messages (Qwen2.5-VL style)
+    # Build multimodal messages from ranked pages only (Qwen2.5-VL style)
     content = []
     for img, src in zip(page_images, source_info):
         content.append({"type": "image", "image": img})
@@ -363,7 +387,13 @@ def analyze_document(
         return_tensors="pt"
     ).to(model.device)
 
-    gallery, sources_text = build_gallery_and_sources(page_images, source_info)
+    gallery, sources_text = build_gallery_and_sources(
+        page_images,
+        source_info,
+        scores=scores,
+        omitted_labels=omitted_labels,
+        total_extracted=len(all_images),
+    )
 
     streamer = TextIteratorStreamer(
         processor.tokenizer,
@@ -439,7 +469,7 @@ with gr.Blocks(
                 lines=12,
                 placeholder="The generated answer will stream here…",
             )
-            sources = gr.Textbox(label="Pages sent to the model", lines=4)
+            sources = gr.Textbox(label="Pages sent to the model", lines=6)
             gallery = gr.Gallery(
                 label="Pages sent to the model",
                 columns=2,
