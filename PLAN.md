@@ -17,7 +17,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Keep only what is actually imported/used.
 - Type: chore
 
-### 2. [TODO] fix: add processor pixel limits to prevent OOM
+### 2. [IN_PROGRESS] fix: add processor pixel limits to prevent OOM
 - When creating AutoProcessor, set:
   min_pixels=256*28*28
   max_pixels=1280*28*28
