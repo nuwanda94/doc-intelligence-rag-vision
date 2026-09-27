@@ -2,14 +2,14 @@
 title: Multimodal Document Intelligence
 emoji: 📄
 colorFrom: blue
-colorTo: slate
+colorTo: indigo
 sdk: gradio
 sdk_version: 6.27.0
 python_version: '3.12'
 app_file: app.py
 pinned: false
 license: mit
-short_description: Vision-language Q&A over PDFs and images with page ranking and chat.
+short_description: VLM Q&A over PDFs/images with page ranking and chat
 ---
 
 # Multimodal Document Intelligence
