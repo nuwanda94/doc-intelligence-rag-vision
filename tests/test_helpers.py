@@ -182,6 +182,35 @@ def test_rank_pages_ocr_falls_back_when_no_text(app_module):
     assert labels[0] == "scan.pdf — page 1"
 
 
+def test_normalize_ranking_mode_accepts_ui_labels(app_module):
+    assert app_module.normalize_ranking_mode("Label keywords only") == "label"
+    assert app_module.normalize_ranking_mode("OCR / page text") == "ocr"
+    assert app_module.normalize_ranking_mode("Auto (OCR if labels uninformative)") == "auto"
+    assert app_module.normalize_ranking_mode("label") == "label"
+    assert app_module.normalize_ranking_mode(None) == app_module.DEFAULT_RANKING_MODE
+    assert app_module.normalize_ranking_mode("mystery") == app_module.DEFAULT_RANKING_MODE
+
+
+def test_build_gallery_and_sources_reports_requested_mode_and_topk(app_module):
+    pages = [object()]
+    sources = ["scan.pdf — page 1"]
+    _, text = app_module.build_gallery_and_sources(
+        pages,
+        sources,
+        scores=[1.25],
+        omitted_labels=["scan.pdf — page 2"],
+        total_extracted=2,
+        ranking_mode="label",
+        requested_mode="Auto (OCR if labels uninformative)",
+        top_k=4,
+    )
+    assert "Ranking requested: Auto (OCR if labels uninformative)." in text
+    assert "Ranking used: keyword overlap on file/page labels." in text
+    assert "Top-k pages sent: 1 (budget 4)." in text
+    assert "relevance 1.25" in text
+    assert "Not sent to the model (1):" in text
+
+
 def test_validate_uploads_requires_files_and_question(app_module):
     with pytest.raises(GradioError, match="at least one PDF"):
         app_module.validate_uploads(None, "what?")
