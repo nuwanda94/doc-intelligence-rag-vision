@@ -141,7 +141,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Reflect chosen mode and scores in the sources panel.
 - Type: feat
 
-### 26. [TODO] feat: validate and surface structured JSON output
+### 26. [DONE] feat: validate and surface structured JSON output
 - When structured mode is on, attempt to parse model output as JSON; on failure show a clear error and optional raw text.
 - Optionally light repair (strip markdown fences) before parse; do not invent fields.
 - Type: feat
