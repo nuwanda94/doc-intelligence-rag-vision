@@ -57,11 +57,12 @@ def test_page_relevance_score_earlier_pages_tiebreak_slightly(app_module):
 
 
 def test_rank_pages_empty(app_module):
-    images, labels, scores, omitted = app_module.rank_pages([], [], "anything")
+    images, labels, scores, omitted, mode = app_module.rank_pages([], [], "anything")
     assert images == []
     assert labels == []
     assert scores == []
     assert omitted == []
+    assert mode == "label"
 
 
 def test_rank_pages_keeps_top_k_by_score(app_module):
@@ -71,23 +72,114 @@ def test_rank_pages_keeps_top_k_by_score(app_module):
         "acme-invoice.pdf — page 2",
         "random.png",
     ]
-    images, labels, scores, omitted = app_module.rank_pages(
-        pages, sources, "What is on the acme invoice?", top_k=1
+    images, labels, scores, omitted, mode = app_module.rank_pages(
+        pages, sources, "What is on the acme invoice?", top_k=1, ranking_mode="label"
     )
     assert len(images) == 1
     assert labels == ["acme-invoice.pdf — page 2"]
     assert set(omitted) == {"notes.pdf — page 1", "random.png"}
     assert scores[0] >= 1.0
+    assert mode == "label"
 
 
 def test_rank_pages_top_k_clamped(app_module):
     pages = [object(), object()]
     sources = ["a.pdf — page 1", "b.pdf — page 2"]
-    images, labels, _, omitted = app_module.rank_pages(pages, sources, "x", top_k=99)
+    images, labels, _, omitted, _ = app_module.rank_pages(
+        pages, sources, "x", top_k=99, ranking_mode="label"
+    )
     assert len(images) == 2
     assert omitted == []
-    images, labels, _, omitted = app_module.rank_pages(pages, sources, "x", top_k=0)
+    images, labels, _, omitted, _ = app_module.rank_pages(
+        pages, sources, "x", top_k=0, ranking_mode="label"
+    )
     assert len(images) == 1
+
+
+def test_labels_are_informative(app_module):
+    assert app_module.labels_are_informative(
+        ["acme-invoice.pdf — page 1"], "What is the invoice total?"
+    )
+    assert not app_module.labels_are_informative(
+        ["scan.pdf — page 1", "scan.pdf — page 2"], "What is the revenue?"
+    )
+
+
+def test_page_text_relevance_score_uses_ocr_overlap(app_module):
+    label = "scan.pdf — page 1"
+    q = "What is the revenue figure?"
+    label_only = app_module.page_relevance_score(label, q, 0)
+    with_text = app_module.page_text_relevance_score(label, "Annual revenue was $12M", q, 0)
+    assert with_text > label_only
+
+
+def test_rank_pages_ocr_mode_prefers_text_overlap(app_module):
+    pages = [object(), object(), object()]
+    sources = [
+        "scan.pdf — page 1",
+        "scan.pdf — page 2",
+        "scan.pdf — page 3",
+    ]
+    texts = {
+        0: "introduction and table of contents",
+        1: "annual revenue and operating margin",
+        2: "appendix photos",
+    }
+
+    def fake_ocr(img):
+        # identity of page is the object identity order in pages
+        return texts[pages.index(img)]
+
+    images, labels, scores, omitted, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue?",
+        top_k=1,
+        ranking_mode="ocr",
+        ocr_fn=fake_ocr,
+    )
+    assert mode == "ocr"
+    assert labels == ["scan.pdf — page 2"]
+    assert set(omitted) == {"scan.pdf — page 1", "scan.pdf — page 3"}
+    assert scores[0] > 0.05
+
+
+def test_rank_pages_auto_stays_label_when_filename_helps(app_module):
+    pages = [object(), object()]
+    sources = ["notes.pdf — page 1", "acme-invoice.pdf — page 1"]
+    called = {"n": 0}
+
+    def fake_ocr(_img):
+        called["n"] += 1
+        return "revenue total"
+
+    images, labels, _, _, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is on the acme invoice?",
+        top_k=1,
+        ranking_mode="auto",
+        ocr_fn=fake_ocr,
+    )
+    assert called["n"] == 0
+    assert mode == "label"
+    assert labels == ["acme-invoice.pdf — page 1"]
+
+
+def test_rank_pages_ocr_falls_back_when_no_text(app_module):
+    pages = [object(), object()]
+    sources = ["scan.pdf — page 1", "scan.pdf — page 2"]
+    images, labels, _, omitted, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue?",
+        top_k=1,
+        ranking_mode="ocr",
+        ocr_fn=lambda _img: "",
+    )
+    assert mode == "label"
+    assert len(images) == 1
+    assert labels[0] == "scan.pdf — page 1"
 
 
 def test_validate_uploads_requires_files_and_question(app_module):
