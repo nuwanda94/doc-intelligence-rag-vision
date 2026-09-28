@@ -115,7 +115,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - README / Space metadata uses Python 3.12; smoke workflow uses 3.11 — make them match.
 - Type: chore
 
-### 21. [TODO] fix: soften Hugging Face Space sync (avoid blind force-push)
+### 21. [IN_PROGRESS] fix: soften Hugging Face Space sync (avoid blind force-push)
 - Review `.github/workflows/sync-to-hf.yml`; prefer a non-destructive push when possible, or document why `--force` is required and fail clearly if `HF_TOKEN` is missing.
 - Do not change Space app behavior—ops only.
 - Type: fix
