@@ -130,7 +130,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Keep `app.py` as the HF `app_file` entrypoint; preserve behavior and public UI.
 - Type: chore
 
-### 24. [TODO] feat: optional OCR-based page ranking
+### 24. [IN_PROGRESS] feat: optional OCR-based page ranking
 - Add an optional ranking path that OCRs downscaled page images (or extracts text cheaply) and scores question overlap against page text—not only filename/page labels.
 - Keep keyword-label ranking as default/fallback for speed; gate OCR behind advanced setting or auto-use when labels are uninformative.
 - Stay within ZeroGPU memory/time limits (OCR only candidates or top-N pages before final top-k).
