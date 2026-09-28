@@ -96,7 +96,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 ## Phase 4 – Retrieval Depth, Hygiene & Trust
 
-### 17. [TODO] docs: align UI copy with honest non-RAG framing
+### 17. [IN_PROGRESS] docs: align UI copy with honest non-RAG framing
 - Update Gradio header/markdown that still says "RAG + Vision" to match README (vision-language Q&A + lightweight page selection).
 - Keep Space `short_description` accurate; avoid implying vector/embedding RAG.
 - Type: docs
