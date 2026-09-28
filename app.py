@@ -5,6 +5,7 @@ from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 from docintel.constants import (
     ALLOWED_EXTENSIONS,
     DEFAULT_MAX_NEW_TOKENS,
+    DEFAULT_RANKING_MODE,
     DEFAULT_TEMPERATURE,
     DPI_HIGH,
     DPI_LOW,
@@ -19,7 +20,11 @@ from docintel.constants import (
     MIN_MAX_NEW_TOKENS,
     MIN_PIXELS,
     MODEL_ID,
+    OCR_CANDIDATE_LIMIT,
     QUEUE_MAX_SIZE,
+    RANKING_MODE_AUTO,
+    RANKING_MODE_LABEL,
+    RANKING_MODE_OCR,
     STATUS_DONE,
     STATUS_GENERATING,
     STATUS_IDLE,
@@ -42,7 +47,10 @@ from docintel.pipeline import make_chat_analyze
 from docintel.ranking import (
     build_gallery_and_sources,
     label_sent_page,
+    labels_are_informative,
+    ocr_page_text,
     page_relevance_score,
+    page_text_relevance_score,
     rank_pages,
     tokenize_query,
 )

@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Tuple
+from typing import Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from docintel.constants import PAGE_REF_RE, STOPWORDS, TOKEN_RE, TOP_K_PAGES
+from docintel.constants import (
+    DEFAULT_RANKING_MODE,
+    OCR_CANDIDATE_LIMIT,
+    OCR_MAX_SIDE,
+    OCR_TEXT_WEIGHT,
+    PAGE_REF_RE,
+    RANKING_MODE_AUTO,
+    RANKING_MODE_LABEL,
+    RANKING_MODE_OCR,
+    STOPWORDS,
+    TOKEN_RE,
+    TOP_K_PAGES,
+)
 
 
 def tokenize_query(text: str) -> set:
@@ -32,21 +44,124 @@ def page_relevance_score(source_label: str, question: str, page_index: int) -> f
     return score
 
 
+def page_text_relevance_score(
+    source_label: str,
+    page_text: str,
+    question: str,
+    page_index: int,
+) -> float:
+    """Label score plus keyword overlap against cheap OCR/extracted page text."""
+    score = page_relevance_score(source_label, question, page_index)
+    q_tokens = tokenize_query(question)
+    text_tokens = tokenize_query(page_text or "")
+    if q_tokens and text_tokens:
+        score += OCR_TEXT_WEIGHT * float(len(q_tokens & text_tokens))
+    return score
+
+
+def labels_are_informative(source_info: List[str], question: str) -> bool:
+    """True when filename/page labels already overlap the question usefully."""
+    q_tokens = tokenize_query(question)
+    if not q_tokens or not source_info:
+        return False
+    for src in source_info:
+        label_tokens = tokenize_query(src.replace("\u2014", " ").replace("-", " ").replace(".", " "))
+        if q_tokens & label_tokens:
+            return True
+    return False
+
+
+def _downscale_for_ocr(image: Image.Image) -> Image.Image:
+    img = image
+    try:
+        img = image.convert("RGB")
+    except Exception:
+        pass
+    try:
+        w, h = img.size
+    except Exception:
+        return img
+    longest = max(w, h)
+    if longest <= OCR_MAX_SIDE:
+        return img
+    scale = OCR_MAX_SIDE / float(longest)
+    new_size = (max(1, int(w * scale)), max(1, int(h * scale)))
+    resample = getattr(getattr(Image, "Resampling", Image), "LANCZOS", 1)
+    try:
+        return img.resize(new_size, resample)
+    except Exception:
+        return img
+
+
+def ocr_page_text(image: Image.Image) -> str:
+    """Best-effort OCR on a downscaled page. Returns empty string if unavailable."""
+    try:
+        import pytesseract
+    except Exception:
+        return ""
+    try:
+        small = _downscale_for_ocr(image)
+        text = pytesseract.image_to_string(small) or ""
+        return text.strip()
+    except Exception:
+        return ""
+
+
+def _resolve_use_ocr(ranking_mode: str, source_info: List[str], question: str) -> bool:
+    mode = (ranking_mode or DEFAULT_RANKING_MODE).lower()
+    if mode == RANKING_MODE_LABEL:
+        return False
+    if mode == RANKING_MODE_OCR:
+        return True
+    # auto: OCR only when labels carry no useful question overlap
+    return not labels_are_informative(source_info, question)
+
+
 def rank_pages(
     page_images: List[Image.Image],
     source_info: List[str],
     question: str,
     top_k: int = TOP_K_PAGES,
-) -> Tuple[List[Image.Image], List[str], List[float], List[str]]:
-    """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels).\n    Selected lists are ordered by descending relevance score.\n    """
+    ranking_mode: str = DEFAULT_RANKING_MODE,
+    ocr_fn: Optional[Callable[[Image.Image], str]] = None,
+    ocr_cache: Optional[Dict[int, str]] = None,
+) -> Tuple[List[Image.Image], List[str], List[float], List[str], str]:
+    """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels, mode_note).\n    Selected lists are ordered by descending relevance score.\n    OCR, when used, runs only on a bounded candidate set after a cheap label pass.\n    """
     if not page_images:
-        return [], [], [], []
+        return [], [], [], [], "label"
 
-    scored = []
+    label_scored = []
     for i, (img, src) in enumerate(zip(page_images, source_info)):
-        scored.append((page_relevance_score(src, question, i), i, img, src))
+        label_scored.append((page_relevance_score(src, question, i), i, img, src))
+    label_scored.sort(key=lambda row: (-row[0], row[1]))
 
-    scored.sort(key=lambda row: (-row[0], row[1]))
+    use_ocr = _resolve_use_ocr(ranking_mode, source_info, question)
+    mode_used = RANKING_MODE_LABEL
+    scored = label_scored
+
+    if use_ocr:
+        extract = ocr_fn or ocr_page_text
+        cache = ocr_cache if ocr_cache is not None else {}
+        candidate_n = max(1, min(int(OCR_CANDIDATE_LIMIT), len(label_scored)))
+        candidates = label_scored[:candidate_n]
+        rest = label_scored[candidate_n:]
+        rescored = []
+        any_text = False
+        for _ls, idx, img, src in candidates:
+            if idx not in cache:
+                cache[idx] = extract(img) or ""
+            text = cache.get(idx) or ""
+            if text.strip():
+                any_text = True
+            rescored.append((page_text_relevance_score(src, text, question, idx), idx, img, src))
+        if any_text:
+            mode_used = RANKING_MODE_OCR
+            scored = rescored + rest
+            scored.sort(key=lambda row: (-row[0], row[1]))
+        else:
+            mode_used = RANKING_MODE_LABEL
+            scored = label_scored
+
     k = max(1, min(int(top_k), len(scored)))
     selected = scored[:k]
     omitted = scored[k:]
@@ -54,7 +169,7 @@ def rank_pages(
     labels = [row[3] for row in selected]
     scores = [row[0] for row in selected]
     omitted_labels = [row[3] for row in omitted]
-    return images, labels, scores, omitted_labels
+    return images, labels, scores, omitted_labels, mode_used
 
 
 def label_sent_page(src: str, index: int, total: int, score: Optional[float] = None) -> str:
@@ -72,6 +187,7 @@ def build_gallery_and_sources(
     omitted_labels: Optional[List[str]] = None,
     total_extracted: Optional[int] = None,
     truncation_note: Optional[str] = None,
+    ranking_mode: Optional[str] = None,
 ) -> Tuple[List[Tuple[Image.Image, str]], str]:
     """Gallery of pages forwarded to the model, plus a ranking-aware source list."""
     sent = len(source_info)
@@ -83,6 +199,10 @@ def build_gallery_and_sources(
 
     header = f"Pages sent to the model ({sent} of {extracted} extracted):"
     lines = [header]
+    if ranking_mode == RANKING_MODE_OCR:
+        lines.append("Ranking: OCR text overlap (label score as fallback).")
+    elif ranking_mode:
+        lines.append("Ranking: keyword overlap on file/page labels.")
     for i, src in enumerate(source_info):
         if scores and i < len(scores):
             lines.append(f"- {src} (relevance {scores[i]:.2f})")

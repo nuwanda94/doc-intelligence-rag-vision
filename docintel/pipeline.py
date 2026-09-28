@@ -9,6 +9,7 @@ from qwen_vl_utils import process_vision_info
 
 from docintel.constants import (
     DEFAULT_MAX_NEW_TOKENS,
+    DEFAULT_RANKING_MODE,
     DEFAULT_TEMPERATURE,
     GPU_DURATION_SECONDS,
     MAX_PAGES_DEFAULT,
@@ -61,6 +62,7 @@ def make_chat_analyze(spaces, processor, model):
                 "file_sig": sig,
                 "max_pages": max_pages,
                 "truncation_note": truncation_note,
+                "ocr_text": {},
             }
         elif not question:
             raise gr.Error("Please enter a question about the uploaded document.")
@@ -68,9 +70,15 @@ def make_chat_analyze(spaces, processor, model):
         all_images = doc_state["images"]
         all_sources = doc_state["sources"]
         truncation_note = doc_state.get("truncation_note")
+        ocr_cache = doc_state.setdefault("ocr_text", {})
 
-        page_images, source_info, scores, omitted_labels = rank_pages(
-            all_images, all_sources, question, top_k=TOP_K_PAGES
+        page_images, source_info, scores, omitted_labels, ranking_mode = rank_pages(
+            all_images,
+            all_sources,
+            question,
+            top_k=TOP_K_PAGES,
+            ranking_mode=DEFAULT_RANKING_MODE,
+            ocr_cache=ocr_cache,
         )
 
         messages = build_vlm_messages(
@@ -94,6 +102,7 @@ def make_chat_analyze(spaces, processor, model):
             omitted_labels=omitted_labels,
             total_extracted=len(all_images),
             truncation_note=truncation_note,
+            ranking_mode=ranking_mode,
         )
 
         streamer = TextIteratorStreamer(
