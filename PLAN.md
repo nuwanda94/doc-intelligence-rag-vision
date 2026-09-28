@@ -94,6 +94,73 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 ---
 
+## Phase 4 – Retrieval Depth, Hygiene & Trust
+
+### 17. [TODO] docs: align UI copy with honest non-RAG framing
+- Update Gradio header/markdown that still says "RAG + Vision" to match README (vision-language Q&A + lightweight page selection).
+- Keep Space `short_description` accurate; avoid implying vector/embedding RAG.
+- Type: docs
+
+### 18. [TODO] fix: enforce a global max-page budget across all uploads
+- Today `max_pages` is applied per PDF then pages are concatenated; multiple files can exceed the intended GPU budget.
+- Cap total extracted pages globally (slider still controls the budget); stop loading once the budget is reached and note truncation in sources/status.
+- Type: fix
+
+### 19. [TODO] chore: add MIT LICENSE and pin critical dependency versions
+- Add a root `LICENSE` file if missing (README claims MIT).
+- Pin or tightly bound versions for `transformers`, `torch`/`torchvision`, `gradio`, `qwen-vl-utils`, `pdf2image`, `Pillow` for reproducible Space builds; leave a short comment on intentional floats if any remain.
+- Type: chore
+
+### 20. [TODO] chore: align smoke-test Python version with Space metadata
+- README / Space metadata uses Python 3.12; smoke workflow uses 3.11 — make them match.
+- Type: chore
+
+### 21. [TODO] fix: soften Hugging Face Space sync (avoid blind force-push)
+- Review `.github/workflows/sync-to-hf.yml`; prefer a non-destructive push when possible, or document why `--force` is required and fail clearly if `HF_TOKEN` is missing.
+- Do not change Space app behavior—ops only.
+- Type: fix
+
+### 22. [TODO] test: unit tests for pure helpers (no GPU)
+- Add lightweight tests (e.g. `pytest`) for `tokenize_query`, `page_relevance_score`, `rank_pages`, `adaptive_dpi`, and validation edge cases that can run without loading the model.
+- Wire tests into smoke CI (or a dedicated job) without installing the full torch/VLM stack if feasible.
+- Type: chore
+
+### 23. [TODO] refactor: split `app.py` into modules with thin Space entrypoint
+- Extract e.g. constants/prompts, ingest (PDF/image load + resize), ranking, VLM message build + generate, and Gradio UI wiring.
+- Keep `app.py` as the HF `app_file` entrypoint; preserve behavior and public UI.
+- Type: chore
+
+### 24. [TODO] feat: optional OCR-based page ranking
+- Add an optional ranking path that OCRs downscaled page images (or extracts text cheaply) and scores question overlap against page text—not only filename/page labels.
+- Keep keyword-label ranking as default/fallback for speed; gate OCR behind advanced setting or auto-use when labels are uninformative.
+- Stay within ZeroGPU memory/time limits (OCR only candidates or top-N pages before final top-k).
+- Type: feat
+
+### 25. [TODO] feat: expose top-k and ranking mode in advanced settings
+- UI controls for `TOP_K_PAGES` and ranking mode (label-only vs OCR/text when available).
+- Reflect chosen mode and scores in the sources panel.
+- Type: feat
+
+### 26. [TODO] feat: validate and surface structured JSON output
+- When structured mode is on, attempt to parse model output as JSON; on failure show a clear error and optional raw text.
+- Optionally light repair (strip markdown fences) before parse; do not invent fields.
+- Type: feat
+
+### 27. [TODO] feat: content-hash file signature for page cache
+- Replace path-only `file_signature` with a stable signature (e.g. size + hash of file bytes) so re-uploads of the same bytes reuse cache when paths change.
+- Type: fix
+
+### 28. [TODO] feat: citation highlight overlays on gallery pages
+- When the answer cites page labels, visually emphasize matching gallery items (caption badge or border)—no requirement for pixel-level bbox overlays in this item.
+- Type: feat
+
+### 29. [TODO] feat: export structured tables / key-values
+- When structured JSON parse succeeds, offer download of tables as CSV and/or key-values as JSON.
+- No-op when structured mode is off or parse fails.
+- Type: feat
+
+---
+
 ## Rules for the automation
 1. Always work on the latest `main`.
 2. Create a branch named `<type>/<short-description>` (e.g. `fix/processor-pixel-limits`).
