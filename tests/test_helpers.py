@@ -120,8 +120,11 @@ def test_validate_uploads_missing_and_ok_image(app_module, tmp_path):
 
 
 def test_validate_uploads_oversized(app_module, tmp_path, monkeypatch):
+    import docintel.ingest as ingest
+
     big = tmp_path / "huge.pdf"
     big.write_bytes(b"%PDF-1.4 placeholder")
     monkeypatch.setattr(app_module, "MAX_FILE_SIZE_BYTES", 1)
+    monkeypatch.setattr(ingest, "MAX_FILE_SIZE_BYTES", 1)
     with pytest.raises(GradioError, match="exceed"):
         app_module.validate_uploads([str(big)], "summarize")
