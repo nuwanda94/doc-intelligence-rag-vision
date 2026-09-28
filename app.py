@@ -198,6 +198,7 @@ def build_gallery_and_sources(
     scores: Optional[List[float]] = None,
     omitted_labels: Optional[List[str]] = None,
     total_extracted: Optional[int] = None,
+    truncation_note: Optional[str] = None,
 ) -> Tuple[List[Tuple[Image.Image, str]], str]:
     """Gallery of pages forwarded to the model, plus a ranking-aware source list."""
     sent = len(source_info)
@@ -218,6 +219,9 @@ def build_gallery_and_sources(
         lines.append("")
         lines.append(f"Not sent to the model ({len(omitted_labels)}):")
         lines.extend([f"- {src}" for src in omitted_labels])
+    if truncation_note:
+        lines.append("")
+        lines.append(truncation_note)
     return gallery, "\n".join(lines)
 
 
@@ -393,19 +397,37 @@ def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Option
     return [prepare_image(img) for img in images]
 
 
-def load_pages_from_paths(paths: List[str], max_pages: int) -> Tuple[List[Image.Image], List[str]]:
+def load_pages_from_paths(
+    paths: List[str], max_pages: int
+) -> Tuple[List[Image.Image], List[str], Optional[str]]:
+    """Load images from uploads under a single global page budget.\n\n    ``max_pages`` is the total number of pages/images kept across all files,
+    not a per-PDF cap. Loading stops once the budget is filled.
+    """
     all_images: List[Image.Image] = []
     all_sources: List[str] = []
-    dpi = adaptive_dpi(max_pages)
+    skipped_files: List[str] = []
+    truncated_pdfs: List[str] = []
+    budget = max(1, int(max_pages))
+    dpi = adaptive_dpi(budget)
 
     for path in paths:
-        ext = os.path.splitext(path)[1].lower()
         name = os.path.basename(path)
+        if budget <= 0:
+            skipped_files.append(name)
+            continue
+
+        ext = os.path.splitext(path)[1].lower()
 
         if ext == ".pdf":
-            imgs = pdf_to_images(path, max_pages=max_pages, dpi=dpi)
+            requested = budget
+            imgs = pdf_to_images(path, max_pages=requested, dpi=dpi)
+            # If we filled the remaining budget, later pages of this PDF
+            # (and later files) are not loaded.
+            if len(imgs) == requested:
+                truncated_pdfs.append(name)
             all_images.extend(imgs)
             all_sources.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
+            budget -= len(imgs)
         else:
             try:
                 img = prepare_image(Image.open(path))
@@ -415,10 +437,27 @@ def load_pages_from_paths(paths: List[str], max_pages: int) -> Tuple[List[Image.
                 raise gr.Error(f"Image '{name}' has zero width or height.")
             all_images.append(img)
             all_sources.append(name)
+            budget -= 1
 
     if not all_images:
         raise gr.Error("No pages could be extracted from the uploaded files.")
-    return all_images, all_sources
+
+    note_parts: List[str] = []
+    if truncated_pdfs or skipped_files:
+        note_parts.append(
+            f"Page budget reached ({len(all_images)} of {max_pages} allowed). "
+            "Further pages were not loaded."
+        )
+        if truncated_pdfs:
+            note_parts.append(
+                "Possibly truncated PDF(s): " + ", ".join(truncated_pdfs) + "."
+            )
+        if skipped_files:
+            note_parts.append(
+                "Not loaded: " + ", ".join(skipped_files) + "."
+            )
+    truncation_note = " ".join(note_parts) if note_parts else None
+    return all_images, all_sources, truncation_note
 
 
 @spaces.GPU(duration=GPU_DURATION_SECONDS)
@@ -441,19 +480,28 @@ def chat_analyze(
 
     sig = file_signature(files)
     cached_sig = (doc_state or {}).get("file_sig")
-    if doc_state is None or not doc_state.get("images") or cached_sig != sig:
+    cached_budget = (doc_state or {}).get("max_pages")
+    if (
+        doc_state is None
+        or not doc_state.get("images")
+        or cached_sig != sig
+        or cached_budget != max_pages
+    ):
         paths = validate_uploads(files, question)
-        all_images, all_sources = load_pages_from_paths(paths, max_pages)
+        all_images, all_sources, truncation_note = load_pages_from_paths(paths, max_pages)
         doc_state = {
             "images": all_images,
             "sources": all_sources,
             "file_sig": sig,
+            "max_pages": max_pages,
+            "truncation_note": truncation_note,
         }
     elif not question:
         raise gr.Error("Please enter a question about the uploaded document.")
 
     all_images = doc_state["images"]
     all_sources = doc_state["sources"]
+    truncation_note = doc_state.get("truncation_note")
 
     page_images, source_info, scores, omitted_labels = rank_pages(
         all_images, all_sources, question, top_k=TOP_K_PAGES
@@ -479,6 +527,7 @@ def chat_analyze(
         scores=scores,
         omitted_labels=omitted_labels,
         total_extracted=len(all_images),
+        truncation_note=truncation_note,
     )
 
     streamer = TextIteratorStreamer(
@@ -508,7 +557,10 @@ def chat_analyze(
     if not partial:
         partial = "(No answer generated.)"
     final_history = pending + [{"role": "assistant", "content": partial}]
-    yield STATUS_DONE, final_history, doc_state, gallery, sources_text, gr.update(value="")
+    done_status = STATUS_DONE
+    if truncation_note:
+        done_status = STATUS_DONE + " " + truncation_note
+    yield done_status, final_history, doc_state, gallery, sources_text, gr.update(value="")
 
 
 # -----------------------------
@@ -551,7 +603,7 @@ with gr.Blocks(
                 lines=3,
             )
             with gr.Accordion("Advanced Settings", open=False):
-                max_pages = gr.Slider(1, MAX_PAGES_SLIDER_MAX, value=MAX_PAGES_DEFAULT, step=1, label="Max PDF pages to process")
+                max_pages = gr.Slider(1, MAX_PAGES_SLIDER_MAX, value=MAX_PAGES_DEFAULT, step=1, label="Max pages to process (all files)")
                 temperature = gr.Slider(0.0, 1.0, value=DEFAULT_TEMPERATURE, step=0.05, label="Temperature")
                 max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
                 structured_output = gr.Checkbox(
