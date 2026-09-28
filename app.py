@@ -25,6 +25,7 @@ from docintel.constants import (
     RANKING_MODE_AUTO,
     RANKING_MODE_LABEL,
     RANKING_MODE_OCR,
+    RANKING_MODE_UI,
     STATUS_DONE,
     STATUS_GENERATING,
     STATUS_IDLE,
@@ -32,6 +33,8 @@ from docintel.constants import (
     STRUCTURED_SYSTEM_PROMPT,
     SYSTEM_PROMPT,
     TOP_K_PAGES,
+    TOP_K_SLIDER_MAX,
+    TOP_K_SLIDER_MIN,
     TOP_P,
 )
 from docintel.ingest import (
@@ -48,6 +51,7 @@ from docintel.ranking import (
     build_gallery_and_sources,
     label_sent_page,
     labels_are_informative,
+    normalize_ranking_mode,
     ocr_page_text,
     page_relevance_score,
     page_text_relevance_score,
