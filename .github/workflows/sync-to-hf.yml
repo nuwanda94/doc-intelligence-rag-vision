@@ -18,7 +18,23 @@ jobs:
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          set -euo pipefail
+          if [ -z "${HF_TOKEN:-}" ]; then
+            echo "::error::HF_TOKEN secret is missing. Add a write-capable Hugging Face token as repository secret HF_TOKEN."
+            exit 1
+          fi
+
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          git remote add hf https://nuwanda94:${HF_TOKEN}@huggingface.co/spaces/nuwanda94/Multimodal-Document-Intelligence-Tool-RAG-Vision || true
+          git remote remove hf 2>/dev/null || true
+          git remote add hf "https://nuwanda94:${HF_TOKEN}@huggingface.co/spaces/nuwanda94/Multimodal-Document-Intelligence-Tool-RAG-Vision"
+
+          # Prefer a fast-forward / non-destructive push so we do not overwrite
+          # unexpected Space-side commits (e.g. edits made in the HF UI).
+          if git push hf HEAD:main; then
+            echo "Synced to Hugging Face Space with a non-force push."
+            exit 0
+          fi
+
+          echo "::warning::Non-force push rejected (likely non-fast-forward). Retrying with --force because GitHub main is the source of truth for this Space."
           git push hf HEAD:main --force
