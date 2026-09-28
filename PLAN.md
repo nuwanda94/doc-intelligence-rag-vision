@@ -125,7 +125,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Wire tests into smoke CI (or a dedicated job) without installing the full torch/VLM stack if feasible.
 - Type: chore
 
-### 23. [IN_PROGRESS] refactor: split `app.py` into modules with thin Space entrypoint
+### 23. [DONE] refactor: split `app.py` into modules with thin Space entrypoint
 - Extract e.g. constants/prompts, ingest (PDF/image load + resize), ranking, VLM message build + generate, and Gradio UI wiring.
 - Keep `app.py` as the HF `app_file` entrypoint; preserve behavior and public UI.
 - Type: chore
