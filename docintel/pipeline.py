@@ -21,6 +21,7 @@ from docintel.constants import (
 )
 from docintel.ingest import file_signature, load_pages_from_paths, validate_uploads
 from docintel.ranking import build_gallery_and_sources, normalize_ranking_mode, rank_pages
+from docintel.structured import parse_structured_output
 from docintel.vlm import build_vlm_messages
 
 
@@ -140,10 +141,18 @@ def make_chat_analyze(spaces, processor, model):
         thread.join()
         if not partial:
             partial = "(No answer generated.)"
+
+        parse_note = ""
+        if structured_output:
+            ok, display, _parsed = parse_structured_output(partial)
+            partial = display
+            if not ok:
+                parse_note = " Structured JSON was invalid; showing raw output."
+
         final_history = pending + [{"role": "assistant", "content": partial}]
-        done_status = STATUS_DONE
+        done_status = STATUS_DONE + parse_note
         if truncation_note:
-            done_status = STATUS_DONE + " " + truncation_note
+            done_status = done_status + " " + truncation_note
         yield done_status, final_history, doc_state, gallery, sources_text, gr.update(value="")
 
     return chat_analyze
