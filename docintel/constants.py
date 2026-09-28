@@ -25,6 +25,15 @@ STATUS_PREPARING = "Preparing pages and allocating GPU… this can take a minute
 STATUS_GENERATING = "Generating answer…"
 STATUS_DONE = "Done. Ask a follow-up or clear to start over."
 
+# Ranking: label-only is the fast default; OCR is optional and bounded.
+RANKING_MODE_LABEL = "label"
+RANKING_MODE_OCR = "ocr"
+RANKING_MODE_AUTO = "auto"
+DEFAULT_RANKING_MODE = RANKING_MODE_AUTO
+OCR_CANDIDATE_LIMIT = 8  # OCR at most this many pages before final top-k
+OCR_MAX_SIDE = 640       # downscale before Tesseract to stay cheap
+OCR_TEXT_WEIGHT = 1.5    # extra score per overlapping OCR token
+
 TOKEN_RE = re.compile(r"[a-z0-9]+")
 PAGE_REF_RE = re.compile(r"\bpage\s*(\d+)\b", re.IGNORECASE)
 STOPWORDS = frozenset({
