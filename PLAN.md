@@ -101,7 +101,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Keep Space `short_description` accurate; avoid implying vector/embedding RAG.
 - Type: docs
 
-### 18. [IN_PROGRESS] fix: enforce a global max-page budget across all uploads
+### 18. [DONE] fix: enforce a global max-page budget across all uploads
 - Today `max_pages` is applied per PDF then pages are concatenated; multiple files can exceed the intended GPU budget.
 - Cap total extracted pages globally (slider still controls the budget); stop loading once the budget is reached and note truncation in sources/status.
 - Type: fix
