@@ -136,7 +136,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Stay within ZeroGPU memory/time limits (OCR only candidates or top-N pages before final top-k).
 - Type: feat
 
-### 25. [TODO] feat: expose top-k and ranking mode in advanced settings
+### 25. [DONE] feat: expose top-k and ranking mode in advanced settings
 - UI controls for `TOP_K_PAGES` and ranking mode (label-only vs OCR/text when available).
 - Reflect chosen mode and scores in the sources panel.
 - Type: feat

@@ -20,7 +20,7 @@ from docintel.constants import (
     TOP_P,
 )
 from docintel.ingest import file_signature, load_pages_from_paths, validate_uploads
-from docintel.ranking import build_gallery_and_sources, rank_pages
+from docintel.ranking import build_gallery_and_sources, normalize_ranking_mode, rank_pages
 from docintel.vlm import build_vlm_messages
 
 
@@ -37,11 +37,18 @@ def make_chat_analyze(spaces, processor, model):
         temperature: float = DEFAULT_TEMPERATURE,
         max_new_tokens: int = DEFAULT_MAX_NEW_TOKENS,
         structured_output: bool = False,
+        top_k: int = TOP_K_PAGES,
+        ranking_mode: str = DEFAULT_RANKING_MODE,
     ):
         """One chat turn: reuse cached pages when possible, re-rank, stream the reply."""
         history = list(history or [])
         question = (message or "").strip()
         pending = history + [{"role": "user", "content": question}]
+        requested_mode = normalize_ranking_mode(ranking_mode)
+        try:
+            top_k_budget = int(top_k) if top_k is not None else TOP_K_PAGES
+        except (TypeError, ValueError):
+            top_k_budget = TOP_K_PAGES
 
         yield STATUS_PREPARING, pending + [{"role": "assistant", "content": "Preparing document\u2026"}], doc_state, None, "", gr.update(value="")
 
@@ -72,12 +79,12 @@ def make_chat_analyze(spaces, processor, model):
         truncation_note = doc_state.get("truncation_note")
         ocr_cache = doc_state.setdefault("ocr_text", {})
 
-        page_images, source_info, scores, omitted_labels, ranking_mode = rank_pages(
+        page_images, source_info, scores, omitted_labels, used_mode = rank_pages(
             all_images,
             all_sources,
             question,
-            top_k=TOP_K_PAGES,
-            ranking_mode=DEFAULT_RANKING_MODE,
+            top_k=top_k_budget,
+            ranking_mode=requested_mode,
             ocr_cache=ocr_cache,
         )
 
@@ -102,7 +109,9 @@ def make_chat_analyze(spaces, processor, model):
             omitted_labels=omitted_labels,
             total_extracted=len(all_images),
             truncation_note=truncation_note,
-            ranking_mode=ranking_mode,
+            ranking_mode=used_mode,
+            requested_mode=requested_mode,
+            top_k=top_k_budget,
         )
 
         streamer = TextIteratorStreamer(
