@@ -37,3 +37,14 @@ STATUS_IDLE = "Ready — upload a document and start a conversation."
 STATUS_PREPARING = "Preparing pages and allocating GPU… this can take a minute on a cold start."
 STATUS_GENERATING = "Generating answer…"
 STATUS_DONE = "Done. Ask a follow-up or clear to start over."
+
+_TOKEN_RE = re.compile(r"[a-z0-9]+")
+_PAGE_REF_RE = re.compile(r"\bpage\s*(\d+)\b", re.IGNORECASE)
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "if", "of", "in", "on", "at", "to", "for",
+    "from", "with", "by", "is", "are", "was", "were", "be", "been", "this", "that",
+    "these", "those", "it", "its", "as", "about", "into", "over", "under", "what",
+    "which", "who", "how", "why", "when", "where", "please", "show", "tell",
+    "give", "me", "my", "your", "you", "we", "our", "document", "page", "pages",
+    "pdf", "image", "file",
+})
