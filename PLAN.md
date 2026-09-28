@@ -120,7 +120,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Do not change Space app behavior—ops only.
 - Type: fix
 
-### 22. [TODO] test: unit tests for pure helpers (no GPU)
+### 22. [DONE] test: unit tests for pure helpers (no GPU)
 - Add lightweight tests (e.g. `pytest`) for `tokenize_query`, `page_relevance_score`, `rank_pages`, `adaptive_dpi`, and validation edge cases that can run without loading the model.
 - Wire tests into smoke CI (or a dedicated job) without installing the full torch/VLM stack if feasible.
 - Type: chore
