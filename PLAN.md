@@ -111,7 +111,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Pin or tightly bound versions for `transformers`, `torch`/`torchvision`, `gradio`, `qwen-vl-utils`, `pdf2image`, `Pillow` for reproducible Space builds; leave a short comment on intentional floats if any remain.
 - Type: chore
 
-### 20. [TODO] chore: align smoke-test Python version with Space metadata
+### 20. [IN_PROGRESS] chore: align smoke-test Python version with Space metadata
 - README / Space metadata uses Python 3.12; smoke workflow uses 3.11 — make them match.
 - Type: chore
 
