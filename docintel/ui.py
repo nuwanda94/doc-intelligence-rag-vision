@@ -4,13 +4,21 @@ import gradio as gr
 
 from docintel.constants import (
     DEFAULT_MAX_NEW_TOKENS,
+    DEFAULT_RANKING_MODE,
     DEFAULT_TEMPERATURE,
     MAX_MAX_NEW_TOKENS,
     MAX_PAGES_DEFAULT,
     MAX_PAGES_SLIDER_MAX,
     MIN_MAX_NEW_TOKENS,
     QUEUE_MAX_SIZE,
+    RANKING_MODE_AUTO,
+    RANKING_MODE_LABEL,
+    RANKING_MODE_OCR,
+    RANKING_MODE_UI,
     STATUS_IDLE,
+    TOP_K_PAGES,
+    TOP_K_SLIDER_MAX,
+    TOP_K_SLIDER_MIN,
 )
 
 
@@ -24,6 +32,8 @@ def clear_workspace():
         DEFAULT_TEMPERATURE,
         DEFAULT_MAX_NEW_TOKENS,
         False,
+        TOP_K_PAGES,
+        RANKING_MODE_UI[DEFAULT_RANKING_MODE],
         [],
         "",
         STATUS_IDLE,
@@ -70,6 +80,24 @@ def build_demo(chat_analyze):
                 )
                 with gr.Accordion("Advanced Settings", open=False):
                     max_pages = gr.Slider(1, MAX_PAGES_SLIDER_MAX, value=MAX_PAGES_DEFAULT, step=1, label="Max pages to process (all files)")
+                    top_k = gr.Slider(
+                        TOP_K_SLIDER_MIN,
+                        TOP_K_SLIDER_MAX,
+                        value=TOP_K_PAGES,
+                        step=1,
+                        label="Top-k pages to send to the model",
+                        info="After ranking, only this many pages are forwarded to the VLM.",
+                    )
+                    ranking_mode = gr.Radio(
+                        choices=[
+                            RANKING_MODE_UI[RANKING_MODE_AUTO],
+                            RANKING_MODE_UI[RANKING_MODE_LABEL],
+                            RANKING_MODE_UI[RANKING_MODE_OCR],
+                        ],
+                        value=RANKING_MODE_UI[DEFAULT_RANKING_MODE],
+                        label="Page ranking mode",
+                        info="Label-only is fastest. OCR scores question overlap against page text when available.",
+                    )
                     temperature = gr.Slider(0.0, 1.0, value=DEFAULT_TEMPERATURE, step=0.05, label="Temperature")
                     max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
                     structured_output = gr.Checkbox(
@@ -83,7 +111,7 @@ def build_demo(chat_analyze):
                     clear_btn = gr.Button("Clear", variant="secondary", size="lg")
 
             with gr.Column(scale=1):
-                sources = gr.Textbox(label="Pages sent to the model", lines=6)
+                sources = gr.Textbox(label="Pages sent to the model", lines=8)
                 gallery = gr.Gallery(
                     label="Pages sent to the model",
                     columns=2,
@@ -101,29 +129,57 @@ def build_demo(chat_analyze):
             label="Example questions (upload your own files)"
         )
 
+        analyze_inputs = [
+            question,
+            chatbot,
+            files,
+            doc_state,
+            max_pages,
+            temperature,
+            max_tokens,
+            structured_output,
+            top_k,
+            ranking_mode,
+        ]
+        analyze_outputs = [status, chatbot, doc_state, gallery, sources, question]
+
         submit_btn.click(
             fn=chat_analyze,
-            inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens, structured_output],
-            outputs=[status, chatbot, doc_state, gallery, sources, question],
+            inputs=analyze_inputs,
+            outputs=analyze_outputs,
             show_progress="full",
         )
         question.submit(
             fn=chat_analyze,
-            inputs=[question, chatbot, files, doc_state, max_pages, temperature, max_tokens, structured_output],
-            outputs=[status, chatbot, doc_state, gallery, sources, question],
+            inputs=analyze_inputs,
+            outputs=analyze_outputs,
             show_progress="full",
         )
 
         clear_btn.click(
             fn=clear_workspace,
             inputs=None,
-            outputs=[files, chatbot, doc_state, max_pages, temperature, max_tokens, structured_output, gallery, sources, status, question],
+            outputs=[
+                files,
+                chatbot,
+                doc_state,
+                max_pages,
+                temperature,
+                max_tokens,
+                structured_output,
+                top_k,
+                ranking_mode,
+                gallery,
+                sources,
+                status,
+                question,
+            ],
         )
 
         gr.Markdown(f"""
     ---
     **Tech**: Qwen2.5-VL-3B-Instruct · Gradio · ZeroGPU  
-    **How pages are chosen**: keyword overlap on file/page labels — not a vector index or embeddings.  
+    **How pages are chosen**: keyword overlap on file/page labels, optional OCR text overlap — not a vector index.  
     **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Follow-ups reuse cached pages from the current upload.
     """)
 
