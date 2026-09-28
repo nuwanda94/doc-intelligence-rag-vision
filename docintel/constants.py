@@ -12,6 +12,8 @@ DPI_PAGE_THRESHOLD = 4  # switch to DPI_LOW when max_pages exceeds this
 MAX_PAGES_DEFAULT = 6
 MAX_PAGES_SLIDER_MAX = 10
 TOP_K_PAGES = 4  # keep the highest-scoring pages after cheap ranking
+TOP_K_SLIDER_MIN = 1
+TOP_K_SLIDER_MAX = 8
 DEFAULT_TEMPERATURE = 0.3
 DEFAULT_MAX_NEW_TOKENS = 512
 MIN_MAX_NEW_TOKENS = 128
@@ -30,6 +32,11 @@ RANKING_MODE_LABEL = "label"
 RANKING_MODE_OCR = "ocr"
 RANKING_MODE_AUTO = "auto"
 DEFAULT_RANKING_MODE = RANKING_MODE_AUTO
+RANKING_MODE_UI = {
+    RANKING_MODE_AUTO: "Auto (OCR if labels uninformative)",
+    RANKING_MODE_LABEL: "Label keywords only",
+    RANKING_MODE_OCR: "OCR / page text",
+}
 OCR_CANDIDATE_LIMIT = 8  # OCR at most this many pages before final top-k
 OCR_MAX_SIDE = 640       # downscale before Tesseract to stay cheap
 OCR_TEXT_WEIGHT = 1.5    # extra score per overlapping OCR token
