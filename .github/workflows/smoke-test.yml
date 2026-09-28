@@ -46,3 +46,19 @@ jobs:
           if not imports:
               raise SystemExit("No top-level imports found in app.py")
           PY
+
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install test runner only
+        run: pip install pytest
+
+      - name: Run CPU-only helper tests
+        run: pytest -q tests
