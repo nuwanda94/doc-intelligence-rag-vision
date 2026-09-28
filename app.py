@@ -523,9 +523,10 @@ with gr.Blocks(
 ) as demo:
     gr.Markdown("""
     # 📄 Multimodal Document Intelligence
-    **RAG + Vision powered by Qwen2.5-VL-3B**
+    **Vision-language Q&A with lightweight page selection** (not embedding/vector RAG) · Qwen2.5-VL-3B
 
     Upload PDFs or images, then chat about content, tables, charts, diagrams, or scanned text.
+    Pages are ranked with a cheap keyword score; only the top-k pages are sent to the model.
     Follow-up questions reuse the extracted pages and prior answers.
     """)
 
@@ -604,6 +605,7 @@ with gr.Blocks(
     gr.Markdown(f"""
     ---
     **Tech**: Qwen2.5-VL-3B-Instruct · Gradio · ZeroGPU  
+    **How pages are chosen**: keyword overlap on file/page labels — not a vector index or embeddings.  
     **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Follow-ups reuse cached pages from the current upload.
     """)
 
