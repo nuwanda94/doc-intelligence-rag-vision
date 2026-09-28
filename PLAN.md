@@ -106,7 +106,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Cap total extracted pages globally (slider still controls the budget); stop loading once the budget is reached and note truncation in sources/status.
 - Type: fix
 
-### 19. [TODO] chore: add MIT LICENSE and pin critical dependency versions
+### 19. [IN_PROGRESS] chore: add MIT LICENSE and pin critical dependency versions
 - Add a root `LICENSE` file if missing (README claims MIT).
 - Pin or tightly bound versions for `transformers`, `torch`/`torchvision`, `gradio`, `qwen-vl-utils`, `pdf2image`, `Pillow` for reproducible Space builds; leave a short comment on intentional floats if any remain.
 - Type: chore
