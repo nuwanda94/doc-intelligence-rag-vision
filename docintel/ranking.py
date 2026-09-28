@@ -14,6 +14,7 @@ from docintel.constants import (
     RANKING_MODE_AUTO,
     RANKING_MODE_LABEL,
     RANKING_MODE_OCR,
+    RANKING_MODE_UI,
     STOPWORDS,
     TOKEN_RE,
     TOP_K_PAGES,
@@ -24,6 +25,20 @@ def tokenize_query(text: str) -> set:
     """Lowercase alphanumeric tokens with stopwords removed."""
     tokens = set(TOKEN_RE.findall((text or "").lower()))
     return {t for t in tokens if t not in STOPWORDS and len(t) > 1}
+
+
+def normalize_ranking_mode(value: Optional[str]) -> str:
+    """Map a UI label or short code to label | ocr | auto."""
+    raw = (value or DEFAULT_RANKING_MODE).strip().lower()
+    if raw in {RANKING_MODE_LABEL, RANKING_MODE_OCR, RANKING_MODE_AUTO}:
+        return raw
+    if raw.startswith("label"):
+        return RANKING_MODE_LABEL
+    if raw.startswith("ocr"):
+        return RANKING_MODE_OCR
+    if raw.startswith("auto"):
+        return RANKING_MODE_AUTO
+    return DEFAULT_RANKING_MODE
 
 
 def page_relevance_score(source_label: str, question: str, page_index: int) -> float:
@@ -108,7 +123,7 @@ def ocr_page_text(image: Image.Image) -> str:
 
 
 def _resolve_use_ocr(ranking_mode: str, source_info: List[str], question: str) -> bool:
-    mode = (ranking_mode or DEFAULT_RANKING_MODE).lower()
+    mode = normalize_ranking_mode(ranking_mode)
     if mode == RANKING_MODE_LABEL:
         return False
     if mode == RANKING_MODE_OCR:
@@ -128,7 +143,7 @@ def rank_pages(
 ) -> Tuple[List[Image.Image], List[str], List[float], List[str], str]:
     """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels, mode_note).\n    Selected lists are ordered by descending relevance score.\n    OCR, when used, runs only on a bounded candidate set after a cheap label pass.\n    """
     if not page_images:
-        return [], [], [], [], "label"
+        return [], [], [], [], RANKING_MODE_LABEL
 
     label_scored = []
     for i, (img, src) in enumerate(zip(page_images, source_info)):
@@ -180,6 +195,14 @@ def label_sent_page(src: str, index: int, total: int, score: Optional[float] = N
     return f"{base} \u00b7 score {score:.2f}"
 
 
+def _mode_used_line(ranking_mode: Optional[str]) -> str:
+    if ranking_mode == RANKING_MODE_OCR:
+        return "Ranking used: OCR text overlap (label score as fallback)."
+    if ranking_mode:
+        return "Ranking used: keyword overlap on file/page labels."
+    return ""
+
+
 def build_gallery_and_sources(
     page_images: List[Image.Image],
     source_info: List[str],
@@ -188,6 +211,8 @@ def build_gallery_and_sources(
     total_extracted: Optional[int] = None,
     truncation_note: Optional[str] = None,
     ranking_mode: Optional[str] = None,
+    requested_mode: Optional[str] = None,
+    top_k: Optional[int] = None,
 ) -> Tuple[List[Tuple[Image.Image, str]], str]:
     """Gallery of pages forwarded to the model, plus a ranking-aware source list."""
     sent = len(source_info)
@@ -199,10 +224,15 @@ def build_gallery_and_sources(
 
     header = f"Pages sent to the model ({sent} of {extracted} extracted):"
     lines = [header]
-    if ranking_mode == RANKING_MODE_OCR:
-        lines.append("Ranking: OCR text overlap (label score as fallback).")
-    elif ranking_mode:
-        lines.append("Ranking: keyword overlap on file/page labels.")
+    requested = normalize_ranking_mode(requested_mode) if requested_mode else None
+    if requested:
+        requested_label = RANKING_MODE_UI.get(requested, requested)
+        lines.append(f"Ranking requested: {requested_label}.")
+    used_line = _mode_used_line(ranking_mode)
+    if used_line:
+        lines.append(used_line)
+    if top_k is not None:
+        lines.append(f"Top-k pages sent: {sent} (budget {int(top_k)}).")
     for i, src in enumerate(source_info):
         if scores and i < len(scores):
             lines.append(f"- {src} (relevance {scores[i]:.2f})")
