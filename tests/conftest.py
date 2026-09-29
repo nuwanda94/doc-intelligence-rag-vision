@@ -112,6 +112,11 @@ def _install_heavy_stubs() -> None:
     sys.modules["PIL.Image"] = pil_image
 
 
+# Install before collection so module-level `from docintel.*` imports succeed
+# without requiring the real torch/gradio/pdf2image stack.
+_install_heavy_stubs()
+
+
 @pytest.fixture(scope="session", autouse=True)
 def heavy_dep_stubs():
     _install_heavy_stubs()
