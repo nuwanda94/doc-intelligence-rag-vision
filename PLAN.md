@@ -177,7 +177,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Preserve streaming yields and `doc_state` cache behavior.
 - Type: fix
 
-### 32. [IN_PROGRESS] fix: stop flagging exact-length PDFs as truncated
+### 32. [DONE] fix: stop flagging exact-length PDFs as truncated
 - `load_pages_from_paths` treats `len(imgs) == requested` as truncation, so a 6-page PDF with max_pages=6 is labeled "Possibly truncated".
 - Detect remaining pages (pdfinfo / page count, or convert `requested+1` and drop the extra) and only note truncation when pages were actually omitted.
 - Add a unit test for equal-length vs over-budget PDFs.
