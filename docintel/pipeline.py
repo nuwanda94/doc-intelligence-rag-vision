@@ -61,10 +61,16 @@ def make_chat_analyze(spaces, processor, model):
         messages: List[Dict[str, Any]],
         temperature: float,
         max_new_tokens: int,
-        stop_event: Optional[Event] = None,
     ) -> Iterator[str]:
-        """Tokenize vision messages and stream ``model.generate`` on ZeroGPU."""
-        stop_event = stop_event or Event()
+        """Tokenize vision messages and stream ``model.generate`` on ZeroGPU.
+
+        Create the stop Event *inside* this function. ZeroGPU pickles args into a
+        worker process; ``threading.Event`` (and its lock) is not picklable, so it
+        must never be passed across the decorator boundary. Gradio cancel closes
+        this generator (GeneratorExit at yield); the finally block signals the
+        generate thread to exit.
+        """
+        stop_event = Event()
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         image_inputs, video_inputs = process_vision_info(messages)
         inputs = processor(
@@ -199,7 +205,6 @@ def make_chat_analyze(spaces, processor, model):
 
         partial = ""
         streamed_history = pending + [{"role": "assistant", "content": ""}]
-        stop_event = Event()
         gpu_started = monotonic()
         yield (
             format_gpu_budget_status(0),
@@ -210,24 +215,18 @@ def make_chat_analyze(spaces, processor, model):
             gr.update(value=""),
             *empty_exports,
         )
-        try:
-            for token in generate_on_gpu(messages, temperature, max_new_tokens, stop_event):
-                partial += token
-                streamed_history = pending + [{"role": "assistant", "content": partial}]
-                yield (
-                    format_gpu_budget_status(monotonic() - gpu_started),
-                    streamed_history,
-                    doc_state,
-                    gallery,
-                    sources_text,
-                    gr.update(),
-                    *empty_exports,
-                )
-        except GeneratorExit:
-            stop_event.set()
-            raise
-        finally:
-            stop_event.set()
+        for token in generate_on_gpu(messages, temperature, max_new_tokens):
+            partial += token
+            streamed_history = pending + [{"role": "assistant", "content": partial}]
+            yield (
+                format_gpu_budget_status(monotonic() - gpu_started),
+                streamed_history,
+                doc_state,
+                gallery,
+                sources_text,
+                gr.update(),
+                *empty_exports,
+            )
 
         if not partial:
             partial = "(No answer generated.)"
