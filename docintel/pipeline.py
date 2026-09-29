@@ -22,7 +22,7 @@ from docintel.constants import (
 )
 from docintel.ingest import file_signature, load_pages_from_paths, validate_uploads
 from docintel.ranking import build_gallery_and_sources, normalize_ranking_mode, rank_pages
-from docintel.structured import parse_structured_output
+from docintel.structured import build_structured_exports, parse_structured_output
 from docintel.vlm import build_vlm_messages
 
 
@@ -52,7 +52,16 @@ def make_chat_analyze(spaces, processor, model):
         except (TypeError, ValueError):
             top_k_budget = TOP_K_PAGES
 
-        yield STATUS_PREPARING, pending + [{"role": "assistant", "content": "Preparing document\u2026"}], doc_state, None, "", gr.update(value="")
+        empty_exports = (None, None)
+        yield (
+            STATUS_PREPARING,
+            pending + [{"role": "assistant", "content": "Preparing document\u2026"}],
+            doc_state,
+            None,
+            "",
+            gr.update(value=""),
+            *empty_exports,
+        )
 
         sig = file_signature(files)
         cached_sig = (doc_state or {}).get("file_sig")
@@ -134,21 +143,27 @@ def make_chat_analyze(spaces, processor, model):
 
         partial = ""
         streamed_history = pending + [{"role": "assistant", "content": ""}]
-        yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(value="")
+        yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(value=""), *empty_exports
         for token in streamer:
             partial += token
             streamed_history = pending + [{"role": "assistant", "content": partial}]
-            yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update()
+            yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(), *empty_exports
         thread.join()
         if not partial:
             partial = "(No answer generated.)"
 
         parse_note = ""
+        parse_ok = False
+        parsed = None
         if structured_output:
-            ok, display, _parsed = parse_structured_output(partial)
+            parse_ok, display, parsed = parse_structured_output(partial)
             partial = display
-            if not ok:
+            if not parse_ok:
                 parse_note = " Structured JSON was invalid; showing raw output."
+
+        csv_path, json_path = build_structured_exports(
+            bool(structured_output), parse_ok, parsed
+        )
 
         gallery, sources_text = apply_citation_highlights(
             gallery, source_info, partial, sources_text
@@ -158,6 +173,6 @@ def make_chat_analyze(spaces, processor, model):
         done_status = STATUS_DONE + parse_note
         if truncation_note:
             done_status = done_status + " " + truncation_note
-        yield done_status, final_history, doc_state, gallery, sources_text, gr.update(value="")
+        yield done_status, final_history, doc_state, gallery, sources_text, gr.update(value=""), csv_path, json_path
 
     return chat_analyze
