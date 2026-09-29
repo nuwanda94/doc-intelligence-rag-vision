@@ -17,7 +17,6 @@ from docintel.constants import (
     MAX_PAGES_DEFAULT,
     STATUS_DONE,
     STATUS_PREPARING,
-    STATUS_STOPPED,
     TOP_K_PAGES,
     TOP_P,
     format_gpu_budget_status,
@@ -202,7 +201,6 @@ def make_chat_analyze(spaces, processor, model):
             gr.update(value=""),
             *empty_exports,
         )
-        stopped = False
         try:
             for token in generate_on_gpu(messages, temperature, max_new_tokens, stop_event):
                 partial += token
@@ -217,24 +215,13 @@ def make_chat_analyze(spaces, processor, model):
                     *empty_exports,
                 )
         except GeneratorExit:
-            stopped = True
             stop_event.set()
             raise
         finally:
             stop_event.set()
 
-        if stopped:
-            return
-
-        if stop_event.is_set() and not partial:
+        if not partial:
             partial = "(No answer generated.)"
-        elif not partial:
-            partial = "(No answer generated.)"
-
-        # If Stop set the event after some tokens but Gradio did not cancel the
-        # generator (criteria tripped first), surface a stopped status.
-        generate_stopped_early = False
-        # Event is always set in finally; cannot distinguish. Skip.
 
         parse_note = ""
         parse_ok = False
