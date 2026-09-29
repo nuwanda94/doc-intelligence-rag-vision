@@ -7,6 +7,7 @@ import gradio as gr
 from transformers import TextIteratorStreamer
 from qwen_vl_utils import process_vision_info
 
+from docintel.citations import apply_citation_highlights
 from docintel.constants import (
     DEFAULT_MAX_NEW_TOKENS,
     DEFAULT_RANKING_MODE,
@@ -148,6 +149,10 @@ def make_chat_analyze(spaces, processor, model):
             partial = display
             if not ok:
                 parse_note = " Structured JSON was invalid; showing raw output."
+
+        gallery, sources_text = apply_citation_highlights(
+            gallery, source_info, partial, sources_text
+        )
 
         final_history = pending + [{"role": "assistant", "content": partial}]
         done_status = STATUS_DONE + parse_note

@@ -2,6 +2,12 @@ import spaces
 import torch
 from transformers import Qwen2_5_VLForConditionalGeneration, AutoProcessor
 
+from docintel.citations import (
+    apply_citation_highlights,
+    cited_source_indices,
+    extract_cited_page_numbers,
+    source_is_cited,
+)
 from docintel.constants import (
     ALLOWED_EXTENSIONS,
     DEFAULT_MAX_NEW_TOKENS,
