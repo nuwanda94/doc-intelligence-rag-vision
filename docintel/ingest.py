@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import os
 from typing import List, Optional, Tuple
 
@@ -17,6 +18,8 @@ from docintel.constants import (
     MAX_PAGES_DEFAULT,
 )
 
+_HASH_CHUNK_BYTES = 1024 * 1024
+
 
 def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Image:
     """Convert to RGB and downscale so the longest side is at most max_side."""
@@ -31,7 +34,9 @@ def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Ima
 
 
 def adaptive_dpi(max_pages: int) -> int:
-    """Choose PDF rasterization DPI from how many pages will be converted.\n\n    Higher page counts use a lower DPI to limit memory and conversion time\n    on the free tier, while short documents keep higher detail.\n    """
+    """Choose PDF rasterization DPI from how many pages will be converted.\n\n    Higher page counts use a lower DPI to limit memory and conversion time
+    on the free tier, while short documents keep higher detail.
+    """
     if max_pages > DPI_PAGE_THRESHOLD:
         return DPI_LOW
     return DPI_HIGH
@@ -44,10 +49,30 @@ def file_path(file_obj) -> str:
     return path
 
 
+def file_content_key(path: str) -> str:
+    """Stable cache key from file size and SHA-256 of bytes (path-independent)."""
+    try:
+        size = os.path.getsize(path)
+    except OSError:
+        return f"missing:{path}"
+    hasher = hashlib.sha256()
+    try:
+        with open(path, "rb") as fh:
+            while True:
+                chunk = fh.read(_HASH_CHUNK_BYTES)
+                if not chunk:
+                    break
+                hasher.update(chunk)
+    except OSError:
+        return f"unreadable:{size}:{path}"
+    return f"{size}:{hasher.hexdigest()}"
+
+
 def file_signature(files: Optional[List]) -> Tuple[str, ...]:
+    """Content-based signature so identical bytes reuse the page cache across paths."""
     if not files:
         return ()
-    return tuple(file_path(f) for f in files)
+    return tuple(file_content_key(file_path(f)) for f in files)
 
 
 def validate_uploads(files: Optional[List], question: str) -> List[str]:
@@ -126,7 +151,9 @@ def validate_uploads(files: Optional[List], question: str) -> List[str]:
 
 
 def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Optional[int] = None) -> List[Image.Image]:
-    """Convert PDF pages to images (limited for free tier).\n\n    DPI is chosen adaptively from max_pages when not provided:\n    150 for short docs (≤ DPI_PAGE_THRESHOLD pages), 120 for longer ones.\n    """
+    """Convert PDF pages to images (limited for free tier).\n\n    DPI is chosen adaptively from max_pages when not provided:
+    150 for short docs (≤ DPI_PAGE_THRESHOLD pages), 120 for longer ones.
+    """
     if dpi is None:
         dpi = adaptive_dpi(max_pages)
     try:

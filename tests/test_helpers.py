@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from tests.conftest import GradioError
@@ -249,3 +251,37 @@ def test_validate_uploads_oversized(app_module, tmp_path, monkeypatch):
     monkeypatch.setattr(ingest, "MAX_FILE_SIZE_BYTES", 1)
     with pytest.raises(GradioError, match="exceed"):
         app_module.validate_uploads([str(big)], "summarize")
+
+
+def test_file_signature_empty(app_module):
+    assert app_module.file_signature(None) == ()
+    assert app_module.file_signature([]) == ()
+
+
+def test_file_signature_same_bytes_different_paths(app_module, tmp_path):
+    payload = b"%PDF-1.4 identical-bytes"
+    a = tmp_path / "upload-a" / "doc.pdf"
+    b = tmp_path / "upload-b" / "doc.pdf"
+    a.parent.mkdir()
+    b.parent.mkdir()
+    a.write_bytes(payload)
+    b.write_bytes(payload)
+    expected = (f"{len(payload)}:{hashlib.sha256(payload).hexdigest()}",)
+    assert app_module.file_signature([str(a)]) == expected
+    assert app_module.file_signature([str(b)]) == expected
+    assert app_module.file_signature([str(a)]) == app_module.file_signature([str(b)])
+
+
+def test_file_signature_changes_when_bytes_differ(app_module, tmp_path):
+    a = tmp_path / "a.pdf"
+    b = tmp_path / "b.pdf"
+    a.write_bytes(b"one")
+    b.write_bytes(b"two")
+    assert app_module.file_signature([str(a)]) != app_module.file_signature([str(b)])
+
+
+def test_file_signature_missing_path_is_stable_and_distinct(app_module):
+    missing = "/no/such/upload.pdf"
+    sig = app_module.file_signature([missing])
+    assert sig == (f"missing:{missing}",)
+    assert sig != app_module.file_signature(["/also/missing.pdf"])
