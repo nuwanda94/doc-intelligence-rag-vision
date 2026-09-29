@@ -1,8 +1,11 @@
 # App deps only. Do NOT list gradio or spaces here — the Gradio Space
 # image installs gradio[mcp,oauth]==sdk_version (README frontmatter) and
 # a platform-pinned spaces package; duplicating them causes pip conflicts.
+#
+# Gradio 6.27 needs huggingface-hub>=1.16; transformers 4.x requires
+# huggingface-hub<1.0. Transformers 5.x requires huggingface-hub>=1.3,<2.
 # ZeroGPU accepts torch in {2.8.0, 2.9.1, 2.10.0, 2.11.0, ...}; pin matching torchvision.
-transformers>=4.49.0,<5
+transformers>=5.0.0,<6
 torch==2.8.0
 torchvision==0.23.0
 qwen-vl-utils==0.0.8
