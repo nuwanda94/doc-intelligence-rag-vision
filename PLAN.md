@@ -150,7 +150,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Replace path-only `file_signature` with a stable signature (e.g. size + hash of file bytes) so re-uploads of the same bytes reuse cache when paths change.
 - Type: fix
 
-### 28. [TODO] feat: citation highlight overlays on gallery pages
+### 28. [IN_PROGRESS] feat: citation highlight overlays on gallery pages
 - When the answer cites page labels, visually emphasize matching gallery items (caption badge or border)—no requirement for pixel-level bbox overlays in this item.
 - Type: feat
 
