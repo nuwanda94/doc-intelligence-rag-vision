@@ -165,7 +165,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 Review of `main` after items 1–29. Highest-leverage remaining work is **accuracy of user-facing docs**, **not billing CPU work to ZeroGPU**, and **false positives** in truncation/citations—not more UI chrome.
 
-### 30. [IN_PROGRESS] docs: refresh README to match shipped behavior
+### 30. [DONE] docs: refresh README to match shipped behavior
 - README still claims ranking is filename/page labels only and that there is no OCR of page pixels; OCR ranking (item 24), citation gallery badges (item 28), and CSV/JSON export (item 29) already ship.
 - Point constants at `docintel/constants.py` (not `app.py`).
 - Remove or rewrite "Future ideas" that are already implemented (citation overlays, CSV export).
