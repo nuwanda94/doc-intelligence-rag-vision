@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from threading import Thread
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterator, List, Optional
 
 import gradio as gr
 from transformers import TextIteratorStreamer
@@ -27,9 +27,46 @@ from docintel.vlm import build_vlm_messages
 
 
 def make_chat_analyze(spaces, processor, model):
-    """Bind ZeroGPU decorator + loaded model/processor to the chat pipeline."""
+    """Bind ZeroGPU decorator + loaded model/processor to the chat pipeline.
+
+    CPU work (validation, hashing, PDF/image ingest, OCR ranking, message
+    construction, structured parse) stays on the outer function. Only tensor
+    prep and ``model.generate`` run under ``@spaces.GPU`` so the 120s quota
+    is not spent on pdf2image / Tesseract.
+    """
 
     @spaces.GPU(duration=GPU_DURATION_SECONDS)
+    def generate_on_gpu(messages: List[Dict[str, Any]], temperature: float, max_new_tokens: int) -> Iterator[str]:
+        """Tokenize vision messages and stream ``model.generate`` on ZeroGPU."""
+        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+        image_inputs, video_inputs = process_vision_info(messages)
+        inputs = processor(
+            text=[text],
+            images=image_inputs,
+            videos=video_inputs,
+            padding=True,
+            return_tensors="pt"
+        ).to(model.device)
+
+        streamer = TextIteratorStreamer(
+            processor.tokenizer,
+            skip_prompt=True,
+            skip_special_tokens=True,
+        )
+        gen_kwargs = dict(
+            **inputs,
+            streamer=streamer,
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            do_sample=temperature > 0,
+            top_p=TOP_P,
+        )
+        thread = Thread(target=model.generate, kwargs=gen_kwargs)
+        thread.start()
+        for token in streamer:
+            yield token
+        thread.join()
+
     def chat_analyze(
         message: str,
         history: Optional[List[Dict[str, Any]]],
@@ -103,16 +140,6 @@ def make_chat_analyze(spaces, processor, model):
             history, page_images, source_info, question, structured=bool(structured_output)
         )
 
-        text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        image_inputs, video_inputs = process_vision_info(messages)
-        inputs = processor(
-            text=[text],
-            images=image_inputs,
-            videos=video_inputs,
-            padding=True,
-            return_tensors="pt"
-        ).to(model.device)
-
         gallery, sources_text = build_gallery_and_sources(
             page_images,
             source_info,
@@ -125,30 +152,13 @@ def make_chat_analyze(spaces, processor, model):
             top_k=top_k_budget,
         )
 
-        streamer = TextIteratorStreamer(
-            processor.tokenizer,
-            skip_prompt=True,
-            skip_special_tokens=True,
-        )
-        gen_kwargs = dict(
-            **inputs,
-            streamer=streamer,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            do_sample=temperature > 0,
-            top_p=TOP_P,
-        )
-        thread = Thread(target=model.generate, kwargs=gen_kwargs)
-        thread.start()
-
         partial = ""
         streamed_history = pending + [{"role": "assistant", "content": ""}]
         yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(value=""), *empty_exports
-        for token in streamer:
+        for token in generate_on_gpu(messages, temperature, max_new_tokens):
             partial += token
             streamed_history = pending + [{"role": "assistant", "content": partial}]
             yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(), *empty_exports
-        thread.join()
         if not partial:
             partial = "(No answer generated.)"
 
@@ -175,4 +185,5 @@ def make_chat_analyze(spaces, processor, model):
             done_status = done_status + " " + truncation_note
         yield done_status, final_history, doc_state, gallery, sources_text, gr.update(value=""), csv_path, json_path
 
+    chat_analyze.generate_on_gpu = generate_on_gpu
     return chat_analyze
