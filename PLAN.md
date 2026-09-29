@@ -206,7 +206,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Compile `app.py` + `docintel/` recursively; prefer `from docintel.*` in tests over importing `app.py` (stubs can stay for anything that still needs the entrypoint).
 - Type: chore
 
-### 37. [TODO] feat: allow stopping generation and surface GPU time budget
+### 37. [IN_PROGRESS] feat: allow stopping generation and surface GPU time budget
 - Users cannot cancel a hung stream; ZeroGPU `duration=120` is invisible until the decorator kills the run.
 - Wire Gradio cancel / a Stop control on the generate thread, and show remaining/elapsed budget in status while streaming.
 - Type: feat
