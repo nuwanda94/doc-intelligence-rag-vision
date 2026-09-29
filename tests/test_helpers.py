@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -285,3 +286,51 @@ def test_file_signature_missing_path_is_stable_and_distinct(app_module):
     sig = app_module.file_signature([missing])
     assert sig == (f"missing:{missing}",)
     assert sig != app_module.file_signature(["/also/missing.pdf"])
+
+
+def _fake_pdf_pages(total_pages: int):
+    """Return a convert_from_path stand-in that honors last_page vs a fixed length."""
+
+    def _convert(path, dpi=None, first_page=1, last_page=None):
+        end = total_pages if last_page is None else min(total_pages, last_page)
+        start = max(1, first_page)
+        count = max(0, end - start + 1)
+        pages = []
+        for _ in range(count):
+            img = MagicMock()
+            img.convert.return_value = img
+            img.size = (10, 10)
+            img.resize.return_value = img
+            pages.append(img)
+        return pages
+
+    return _convert
+
+
+def test_load_pages_exact_length_pdf_is_not_truncated(app_module, tmp_path, monkeypatch):
+    import docintel.ingest as ingest
+
+    pdf = tmp_path / "exact-six.pdf"
+    pdf.write_bytes(b"%PDF-1.4 six-pages")
+    monkeypatch.setattr(ingest, "convert_from_path", _fake_pdf_pages(6))
+
+    images, sources, note = app_module.load_pages_from_paths([str(pdf)], max_pages=6)
+    assert len(images) == 6
+    assert len(sources) == 6
+    assert note is None
+    assert "truncated" not in (note or "").lower()
+
+
+def test_load_pages_over_budget_pdf_is_truncated(app_module, tmp_path, monkeypatch):
+    import docintel.ingest as ingest
+
+    pdf = tmp_path / "seven.pdf"
+    pdf.write_bytes(b"%PDF-1.4 seven-pages")
+    monkeypatch.setattr(ingest, "convert_from_path", _fake_pdf_pages(7))
+
+    images, sources, note = app_module.load_pages_from_paths([str(pdf)], max_pages=6)
+    assert len(images) == 6
+    assert sources[-1].endswith("page 6")
+    assert note is not None
+    assert "Possibly truncated" in note
+    assert "seven.pdf" in note
