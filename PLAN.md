@@ -195,7 +195,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Bound extraction to the same candidate limit; cache on `doc_state`; no extra GPU use.
 - Type: feat
 
-### 35. [IN_PROGRESS] fix: length-normalize text ranking scores
+### 35. [DONE] fix: length-normalize text ranking scores
 - `page_text_relevance_score` adds raw overlapping token counts, so wordy pages beat short relevant pages.
 - Use Jaccard (or overlap / sqrt(|page tokens|)) plus the existing label/page-ref bonuses.
 - Keep label-only ranking unchanged; update OCR/text-mode tests.
