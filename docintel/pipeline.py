@@ -29,10 +29,10 @@ from docintel.vlm import build_vlm_messages
 def make_chat_analyze(spaces, processor, model):
     """Bind ZeroGPU decorator + loaded model/processor to the chat pipeline.
 
-    CPU work (validation, hashing, PDF/image ingest, OCR ranking, message
+    CPU work (validation, hashing, PDF/image ingest, text/OCR ranking, message
     construction, structured parse) stays on the outer function. Only tensor
     prep and ``model.generate`` run under ``@spaces.GPU`` so the 120s quota
-    is not spent on pdf2image / Tesseract.
+    is not spent on pdf2image / pdftotext / Tesseract.
     """
 
     @spaces.GPU(duration=GPU_DURATION_SECONDS)
@@ -110,10 +110,11 @@ def make_chat_analyze(spaces, processor, model):
             or cached_budget != max_pages
         ):
             paths = validate_uploads(files, question)
-            all_images, all_sources, truncation_note = load_pages_from_paths(paths, max_pages)
+            all_images, all_sources, truncation_note, origins = load_pages_from_paths(paths, max_pages)
             doc_state = {
                 "images": all_images,
                 "sources": all_sources,
+                "origins": origins,
                 "file_sig": sig,
                 "max_pages": max_pages,
                 "truncation_note": truncation_note,
@@ -126,6 +127,7 @@ def make_chat_analyze(spaces, processor, model):
         all_sources = doc_state["sources"]
         truncation_note = doc_state.get("truncation_note")
         ocr_cache = doc_state.setdefault("ocr_text", {})
+        page_origins = doc_state.get("origins") or []
 
         page_images, source_info, scores, omitted_labels, used_mode = rank_pages(
             all_images,
@@ -134,6 +136,7 @@ def make_chat_analyze(spaces, processor, model):
             top_k=top_k_budget,
             ranking_mode=requested_mode,
             ocr_cache=ocr_cache,
+            page_origins=page_origins,
         )
 
         messages = build_vlm_messages(

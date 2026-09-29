@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
 
@@ -19,6 +19,7 @@ from docintel.constants import (
     TOKEN_RE,
     TOP_K_PAGES,
 )
+from docintel.ingest import extract_native_pdf_page_text
 
 
 def tokenize_query(text: str) -> set:
@@ -42,7 +43,9 @@ def normalize_ranking_mode(value: Optional[str]) -> str:
 
 
 def page_relevance_score(source_label: str, question: str, page_index: int) -> float:
-    """Cheap relevance: keyword overlap with the source label plus explicit page refs.\n\n    Images have no OCR yet, so the score uses the question text and the\n    human-readable source label (filename + page number).\n    """
+    """Cheap relevance: keyword overlap with the source label plus explicit page refs.\n\n    Images have no OCR yet, so the score uses the question text and the
+    human-readable source label (filename + page number).
+    """
     q = question or ""
     q_tokens = tokenize_query(q)
     label_tokens = tokenize_query(source_label.replace("\u2014", " ").replace("-", " ").replace(".", " "))
@@ -132,6 +135,52 @@ def _resolve_use_ocr(ranking_mode: str, source_info: List[str], question: str) -
     return not labels_are_informative(source_info, question)
 
 
+def _origin_for(page_origins: Optional[List[Dict[str, Any]]], idx: int) -> Optional[Dict[str, Any]]:
+    if not page_origins or idx < 0 or idx >= len(page_origins):
+        return None
+    origin = page_origins[idx]
+    return origin if isinstance(origin, dict) else None
+
+
+def page_text_for_ranking(
+    idx: int,
+    image: Image.Image,
+    page_origins: Optional[List[Dict[str, Any]]] = None,
+    ocr_fn: Optional[Callable[[Image.Image], str]] = None,
+    native_text_fn: Optional[Callable[[str, int], str]] = None,
+    text_cache: Optional[Dict[int, str]] = None,
+) -> str:
+    """Native PDF text layer first; Tesseract only if that layer is empty."""
+    cache = text_cache if text_cache is not None else {}
+    if idx in cache:
+        return cache.get(idx) or ""
+
+    text = ""
+    origin = _origin_for(page_origins, idx)
+    if origin and origin.get("kind") == "pdf" and origin.get("path"):
+        extract = native_text_fn or extract_native_pdf_page_text
+        try:
+            page_no = int(origin.get("page") or 0)
+        except (TypeError, ValueError):
+            page_no = 0
+        if page_no >= 1:
+            try:
+                text = extract(str(origin["path"]), page_no) or ""
+            except Exception:
+                text = ""
+
+    if not (text or "").strip():
+        extract_ocr = ocr_fn or ocr_page_text
+        try:
+            text = extract_ocr(image) or ""
+        except Exception:
+            text = ""
+
+    text = (text or "").strip()
+    cache[idx] = text
+    return text
+
+
 def rank_pages(
     page_images: List[Image.Image],
     source_info: List[str],
@@ -140,8 +189,14 @@ def rank_pages(
     ranking_mode: str = DEFAULT_RANKING_MODE,
     ocr_fn: Optional[Callable[[Image.Image], str]] = None,
     ocr_cache: Optional[Dict[int, str]] = None,
+    page_origins: Optional[List[Dict[str, Any]]] = None,
+    native_text_fn: Optional[Callable[[str, int], str]] = None,
 ) -> Tuple[List[Image.Image], List[str], List[float], List[str], str]:
-    """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels, mode_note).\n    Selected lists are ordered by descending relevance score.\n    OCR, when used, runs only on a bounded candidate set after a cheap label pass.\n    """
+    """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels, mode_note).
+    Selected lists are ordered by descending relevance score.
+    Text ranking, when used, runs only on a bounded candidate set after a cheap
+    label pass. Digital PDFs use the native text layer first; OCR is fallback.
+    """
     if not page_images:
         return [], [], [], [], RANKING_MODE_LABEL
 
@@ -155,7 +210,6 @@ def rank_pages(
     scored = label_scored
 
     if use_ocr:
-        extract = ocr_fn or ocr_page_text
         cache = ocr_cache if ocr_cache is not None else {}
         candidate_n = max(1, min(int(OCR_CANDIDATE_LIMIT), len(label_scored)))
         candidates = label_scored[:candidate_n]
@@ -163,9 +217,14 @@ def rank_pages(
         rescored = []
         any_text = False
         for _ls, idx, img, src in candidates:
-            if idx not in cache:
-                cache[idx] = extract(img) or ""
-            text = cache.get(idx) or ""
+            text = page_text_for_ranking(
+                idx,
+                img,
+                page_origins=page_origins,
+                ocr_fn=ocr_fn,
+                native_text_fn=native_text_fn,
+                text_cache=cache,
+            )
             if text.strip():
                 any_text = True
             rescored.append((page_text_relevance_score(src, text, question, idx), idx, img, src))
@@ -197,7 +256,7 @@ def label_sent_page(src: str, index: int, total: int, score: Optional[float] = N
 
 def _mode_used_line(ranking_mode: Optional[str]) -> str:
     if ranking_mode == RANKING_MODE_OCR:
-        return "Ranking used: OCR text overlap (label score as fallback)."
+        return "Ranking used: page text overlap (PDF text layer, then OCR; label score as fallback)."
     if ranking_mode:
         return "Ranking used: keyword overlap on file/page labels."
     return ""
