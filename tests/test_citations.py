@@ -25,9 +25,36 @@ def test_source_is_cited_by_full_label(app_module):
     assert not app_module.source_is_cited(label, "No page mention at all.")
 
 
+def test_source_is_cited_filename_plus_page(app_module):
+    label = "acme.pdf — page 2"
+    sources = ["notes.pdf — page 2", label]
+    assert app_module.source_is_cited(
+        label, "See the table in acme.pdf [page 2].", all_labels=sources
+    )
+    assert not app_module.source_is_cited(
+        "notes.pdf — page 2", "See the table in acme.pdf [page 2].", all_labels=sources
+    )
+
+
+def test_source_is_cited_bare_page_does_not_cross_files(app_module):
+    sources = ["alpha.pdf — page 2", "beta.pdf — page 2"]
+    answer = "Both reports mention the same figure on [page 2]."
+    assert app_module.cited_source_indices(sources, answer) == []
+    assert not app_module.source_is_cited(sources[0], answer, all_labels=sources)
+    assert not app_module.source_is_cited(sources[1], answer, all_labels=sources)
+
+
+def test_source_is_cited_bare_page_single_file_session(app_module):
+    sources = ["report.pdf — page 1", "report.pdf — page 2"]
+    idxs = app_module.cited_source_indices(sources, "See [page 2].")
+    assert idxs == [1]
+
+
 def test_cited_source_indices(app_module):
     sources = ["notes.pdf — page 1", "acme.pdf — page 2", "chart.png"]
-    idxs = app_module.cited_source_indices(sources, "Answer cites [page 2] only.")
+    idxs = app_module.cited_source_indices(
+        sources, "Answer cites acme.pdf [page 2] only."
+    )
     assert idxs == [1]
 
 
@@ -38,7 +65,7 @@ def test_apply_citation_highlights_badges_and_sources(app_module):
     ]
     sources = ["notes.pdf — page 1", "acme.pdf — page 2"]
     out, text = app_module.apply_citation_highlights(
-        gallery, sources, "Total is 12 [page 2].", "Pages sent to the model"
+        gallery, sources, "Total is 12 [acme.pdf — page 2].", "Pages sent to the model"
     )
     assert out[0][1].startswith("Sent to model")
     assert out[1][1].startswith("Cited · ")
