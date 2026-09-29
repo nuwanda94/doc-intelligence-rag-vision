@@ -174,6 +174,9 @@ def load_pages_from_paths(
 ) -> Tuple[List[Image.Image], List[str], Optional[str]]:
     """Load images from uploads under a single global page budget.\n\n    ``max_pages`` is the total number of pages/images kept across all files,
     not a per-PDF cap. Loading stops once the budget is filled.
+
+    For PDFs, one extra page is converted as a probe so a document whose
+    length equals the remaining budget is not flagged as truncated.
     """
     all_images: List[Image.Image] = []
     all_sources: List[str] = []
@@ -192,9 +195,11 @@ def load_pages_from_paths(
 
         if ext == ".pdf":
             requested = budget
-            imgs = pdf_to_images(path, max_pages=requested, dpi=dpi)
-            if len(imgs) == requested:
+            # Probe one extra page: if it exists, the PDF was actually cut short.
+            imgs = pdf_to_images(path, max_pages=requested + 1, dpi=dpi)
+            if len(imgs) > requested:
                 truncated_pdfs.append(name)
+                imgs = imgs[:requested]
             all_images.extend(imgs)
             all_sources.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
             budget -= len(imgs)
