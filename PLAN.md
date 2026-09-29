@@ -161,6 +161,64 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 
 ---
 
+## Phase 5 – Correctness, Quota & Honest Docs (Staff review, 2026-09-29)
+
+Review of `main` after items 1–29. Highest-leverage remaining work is **accuracy of user-facing docs**, **not billing CPU work to ZeroGPU**, and **false positives** in truncation/citations—not more UI chrome.
+
+### 30. [TODO] docs: refresh README to match shipped behavior
+- README still claims ranking is filename/page labels only and that there is no OCR of page pixels; OCR ranking (item 24), citation gallery badges (item 28), and CSV/JSON export (item 29) already ship.
+- Point constants at `docintel/constants.py` (not `app.py`).
+- Remove or rewrite "Future ideas" that are already implemented (citation overlays, CSV export).
+- Type: docs
+
+### 31. [TODO] fix: keep ingest/ranking off the ZeroGPU decorator
+- `@spaces.GPU` wraps all of `chat_analyze`, including validation, SHA hashing, pdf2image, Tesseract, and ranking.
+- Split CPU prepare (pages + rank + messages) from GPU generate/stream so quota and the 120s duration cover only `model.generate`.
+- Preserve streaming yields and `doc_state` cache behavior.
+- Type: fix
+
+### 32. [TODO] fix: stop flagging exact-length PDFs as truncated
+- `load_pages_from_paths` treats `len(imgs) == requested` as truncation, so a 6-page PDF with max_pages=6 is labeled "Possibly truncated".
+- Detect remaining pages (pdfinfo / page count, or convert `requested+1` and drop the extra) and only note truncation when pages were actually omitted.
+- Add a unit test for equal-length vs over-budget PDFs.
+- Type: fix
+
+### 33. [TODO] fix: citation highlights must not cross files on page number alone
+- `source_is_cited` treats any answer mention of `page N` as a hit for every source whose label contains that number, so two PDFs both get page 2 highlighted.
+- Prefer full source-label / filename match; use bare page-number fallback only for a single-file session or when the filename token is also present.
+- Extend `tests/test_citations.py`.
+- Type: fix
+
+### 34. [TODO] feat: rank digital PDFs with the native text layer before OCR
+- Tesseract on downscaled rasters is slow and lossy when `pdftotext` / pypdf already has a text layer.
+- Extract per-page PDF text when present; score that like OCR text; keep Tesseract for image-only / empty text-layer pages.
+- Bound extraction to the same candidate limit; cache on `doc_state`; no extra GPU use.
+- Type: feat
+
+### 35. [TODO] fix: length-normalize text ranking scores
+- `page_text_relevance_score` adds raw overlapping token counts, so wordy pages beat short relevant pages.
+- Use Jaccard (or overlap / sqrt(|page tokens|)) plus the existing label/page-ref bonuses.
+- Keep label-only ranking unchanged; update OCR/text-mode tests.
+- Type: fix
+
+### 36. [TODO] chore: compile the whole package in CI and test modules directly
+- Smoke `py_compile` lists files by hand and omits `docintel/citations.py`.
+- Compile `app.py` + `docintel/` recursively; prefer `from docintel.*` in tests over importing `app.py` (stubs can stay for anything that still needs the entrypoint).
+- Type: chore
+
+### 37. [TODO] feat: allow stopping generation and surface GPU time budget
+- Users cannot cancel a hung stream; ZeroGPU `duration=120` is invisible until the decorator kills the run.
+- Wire Gradio cancel / a Stop control on the generate thread, and show remaining/elapsed budget in status while streaming.
+- Type: feat
+
+### 38. [TODO] feat: compare two documents in one question
+- Multi-file upload concatenates pages into one ranked pool with no compare prompt.
+- Add an optional compare mode (or a dedicated example path) that labels sources by document, sends top-k per file, and asks the VLM to contrast them with per-file citations.
+- Stay within the global page budget and top-k cap.
+- Type: feat
+
+---
+
 ## Rules for the automation
 1. Always work on the latest `main`.
 2. Create a branch named `<type>/<short-description>` (e.g. `fix/processor-pixel-limits`).
