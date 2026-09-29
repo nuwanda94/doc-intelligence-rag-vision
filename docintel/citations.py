@@ -8,6 +8,7 @@ from docintel.constants import PAGE_REF_RE
 CITED_BADGE = "Cited"
 CITED_BORDER_PX = 8
 CITED_BORDER_COLOR = (37, 99, 235)  # blue, matches Gradio Soft primary
+LABEL_SEP = " — "
 
 
 def extract_cited_page_numbers(text: str) -> Set[int]:
@@ -20,16 +21,43 @@ def page_number_from_label(label: str) -> Optional[int]:
     return nums[-1] if nums else None
 
 
+def filename_from_label(label: str) -> str:
+    raw = (label or "").strip()
+    if LABEL_SEP in raw:
+        return raw.split(LABEL_SEP, 1)[0].strip()
+    return raw
+
+
 def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", (text or "").lower().replace("\u2014", "—").strip())
 
 
-def source_is_cited(label: str, answer: str) -> bool:
+def _filename_mentioned(filename: str, hay: str) -> bool:
+    fname = _normalize(filename)
+    if not fname:
+        return False
+    if fname in hay:
+        return True
+    stem = fname.rsplit(".", 1)[0] if "." in fname else fname
+    return bool(stem) and len(stem) >= 3 and stem in hay
+
+
+def _session_is_single_file(labels: Sequence[str]) -> bool:
+    names = {filename_from_label(s) for s in labels if (s or "").strip()}
+    return len(names) <= 1
+
+
+def source_is_cited(
+    label: str,
+    answer: str,
+    all_labels: Optional[Sequence[str]] = None,
+) -> bool:
     """True when the answer cites this gallery source label.
 
     Matches:
     - the full source label as a substring (case-insensitive)
-    - an explicit 'page N' mention that matches the label's page number
+    - filename (or stem) plus a matching 'page N'
+    - bare 'page N' only for a single-file session (or when no session list is given)
     """
     if not label or not answer:
         return False
@@ -38,13 +66,20 @@ def source_is_cited(label: str, answer: str) -> bool:
     if needle and needle in hay:
         return True
     page_n = page_number_from_label(label)
-    if page_n is not None and page_n in extract_cited_page_numbers(answer):
+    if page_n is None or page_n not in extract_cited_page_numbers(answer):
+        return False
+    if _filename_mentioned(filename_from_label(label), hay):
         return True
-    return False
+    session = list(all_labels) if all_labels is not None else [label]
+    return _session_is_single_file(session)
 
 
 def cited_source_indices(source_info: Sequence[str], answer: str) -> List[int]:
-    return [i for i, src in enumerate(source_info) if source_is_cited(src, answer)]
+    return [
+        i
+        for i, src in enumerate(source_info)
+        if source_is_cited(src, answer, all_labels=source_info)
+    ]
 
 
 def _add_cited_badge(caption: str) -> str:
