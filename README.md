@@ -23,6 +23,7 @@ This is a **vision-language document Q&A** tool with lightweight page selection�
 - **Upload** one or more PDFs or images (PNG, JPEG, WebP, BMP)
 - **Render** PDF pages to images (adaptive DPI; a global page budget caps total pages across all files)
 - **Rank** pages and send only the top-k to the VLM. Default ranking is keyword overlap on filename/page labels; optional **OCR / page-text** ranking uses the PDF text layer (`pdftotext`) when present and Tesseract on downscaled rasters otherwise. It can be forced or used automatically when labels are uninformative. Advanced settings expose top-k and ranking mode.
+- **Compare documents** (optional): split the top-k budget across files and prompt the VLM to contrast them with filename+page citations
 - **Chat** multi-turn: follow-ups reuse cached page images (content-hash signatures) and conversation history
 - **Stream** answers token-by-token
 - **Show** which pages were sent (with relevance scores and ranking mode) and which were omitted
@@ -55,14 +56,13 @@ There is **no** vector store, FAISS index, or page-level embedding retrieval. Ra
 - **Page budget**: default max pages is small (≈6; slider up to ~10). Long documents are truncated.
 - **Ranking is still shallow**: label keywords and/or token overlap on page text—not embeddings. Irrelevant pages can still be selected; relevant ones can be dropped. Text ranking is bounded (candidate cap) and falls back to labels if neither the PDF text layer nor Tesseract yields text.
 - **Citation highlights** match source labels mentioned in the answer; they are caption badges, not region overlays, and can false-positive across files that share a page number.
-- **No persistent multi-document index**: each session works from the current upload cache only. Multi-file uploads share one ranked pool (no dedicated compare mode yet).
+- **Compare mode** still uses the same shallow ranker and the global page + top-k caps; it is not a persistent multi-document index.
 - **Structured JSON** is best-effort; parse failures show raw text and skip export.
 - Tables and charts depend on image quality and model vision; results are not guaranteed exact.
 
 ## Future ideas
 
 - Page-level embeddings
-- Multi-document comparison with per-file top-k
 - Length-normalized ranking scores and tighter citation matching across files
 
 ## Local / Space notes

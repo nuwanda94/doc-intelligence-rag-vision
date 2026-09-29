@@ -111,12 +111,14 @@ def make_chat_analyze(spaces, processor, model):
         structured_output: bool = False,
         top_k: int = TOP_K_PAGES,
         ranking_mode: str = DEFAULT_RANKING_MODE,
+        compare_mode: bool = False,
     ):
         """One chat turn: reuse cached pages when possible, re-rank, stream the reply."""
         history = list(history or [])
         question = (message or "").strip()
         pending = history + [{"role": "user", "content": question}]
         requested_mode = normalize_ranking_mode(ranking_mode)
+        compare = bool(compare_mode)
         try:
             top_k_budget = int(top_k) if top_k is not None else TOP_K_PAGES
         except (TypeError, ValueError):
@@ -170,10 +172,16 @@ def make_chat_analyze(spaces, processor, model):
             ranking_mode=requested_mode,
             ocr_cache=ocr_cache,
             page_origins=page_origins,
+            compare=compare,
         )
 
         messages = build_vlm_messages(
-            history, page_images, source_info, question, structured=bool(structured_output)
+            history,
+            page_images,
+            source_info,
+            question,
+            structured=bool(structured_output),
+            compare=compare,
         )
 
         gallery, sources_text = build_gallery_and_sources(
@@ -186,6 +194,7 @@ def make_chat_analyze(spaces, processor, model):
             ranking_mode=used_mode,
             requested_mode=requested_mode,
             top_k=top_k_budget,
+            compare=compare,
         )
 
         partial = ""

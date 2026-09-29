@@ -211,7 +211,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Wire Gradio cancel / a Stop control on the generate thread, and show remaining/elapsed budget in status while streaming.
 - Type: feat
 
-### 38. [TODO] feat: compare two documents in one question
+### 38. [DONE] feat: compare two documents in one question
 - Multi-file upload concatenates pages into one ranked pool with no compare prompt.
 - Add an optional compare mode (or a dedicated example path) that labels sources by document, sends top-k per file, and asks the VLM to contrast them with per-file citations.
 - Stay within the global page budget and top-k cap.

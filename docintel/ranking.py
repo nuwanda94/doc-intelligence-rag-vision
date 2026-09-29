@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from PIL import Image
@@ -40,6 +41,51 @@ def normalize_ranking_mode(value: Optional[str]) -> str:
     if raw.startswith("auto"):
         return RANKING_MODE_AUTO
     return DEFAULT_RANKING_MODE
+
+
+def document_key_from_label(source_label: str) -> str:
+    """Filename (or whole label) used to group pages into documents."""
+    label = (source_label or "").strip()
+    if " \u2014 " in label:
+        return label.split(" \u2014 ", 1)[0].strip() or label
+    return label or "document"
+
+
+def per_document_quotas(doc_sizes: Dict[str, int], top_k: int) -> Dict[str, int]:
+    """Even per-file slot counts that sum to at most ``top_k``."""
+    docs = [d for d, n in doc_sizes.items() if n > 0]
+    if not docs:
+        return {}
+    try:
+        k = max(1, int(top_k))
+    except (TypeError, ValueError):
+        k = TOP_K_PAGES
+    n = len(docs)
+    if n == 1:
+        return {docs[0]: min(k, doc_sizes[docs[0]])}
+
+    base = k // n
+    rem = k % n
+    quotas: Dict[str, int] = {}
+    if base == 0:
+        for i, d in enumerate(docs):
+            quotas[d] = 1 if i < k else 0
+    else:
+        for i, d in enumerate(docs):
+            quotas[d] = base + (1 if i < rem else 0)
+    for d in docs:
+        quotas[d] = min(quotas[d], doc_sizes[d])
+
+    leftover = k - sum(quotas.values())
+    if leftover > 0:
+        for d in docs:
+            room = doc_sizes[d] - quotas[d]
+            take = min(room, leftover)
+            quotas[d] += take
+            leftover -= take
+            if leftover <= 0:
+                break
+    return quotas
 
 
 def page_relevance_score(source_label: str, question: str, page_index: int) -> float:
@@ -187,6 +233,40 @@ def page_text_for_ranking(
     return text
 
 
+def _select_scored(
+    scored: List[Tuple[float, int, Any, str]],
+    top_k: int,
+    compare: bool,
+) -> Tuple[List[Tuple[float, int, Any, str]], List[Tuple[float, int, Any, str]], bool]:
+    """Apply global top-k, or per-document quotas when compare is on."""
+    if not scored:
+        return [], [], False
+    k = max(1, min(int(top_k), len(scored)))
+    if not compare:
+        return scored[:k], scored[k:], False
+
+    sizes: Dict[str, int] = defaultdict(int)
+    for _score, _idx, _img, src in scored:
+        sizes[document_key_from_label(src)] += 1
+    if len(sizes) <= 1:
+        return scored[:k], scored[k:], False
+
+    quotas = per_document_quotas(dict(sizes), k)
+    taken: Dict[str, int] = defaultdict(int)
+    selected: List[Tuple[float, int, Any, str]] = []
+    leftover: List[Tuple[float, int, Any, str]] = []
+    for row in scored:
+        key = document_key_from_label(row[3])
+        if taken[key] < quotas.get(key, 0):
+            selected.append(row)
+            taken[key] += 1
+        else:
+            leftover.append(row)
+    selected.sort(key=lambda row: (-row[0], row[1]))
+    leftover.sort(key=lambda row: (-row[0], row[1]))
+    return selected, leftover, True
+
+
 def rank_pages(
     page_images: List[Image.Image],
     source_info: List[str],
@@ -197,11 +277,14 @@ def rank_pages(
     ocr_cache: Optional[Dict[int, str]] = None,
     page_origins: Optional[List[Dict[str, Any]]] = None,
     native_text_fn: Optional[Callable[[str, int], str]] = None,
+    compare: bool = False,
 ) -> Tuple[List[Image.Image], List[str], List[float], List[str], str]:
     """Split pages into top-k for the VLM and the remainder not sent.\n\n    Returns (selected_images, selected_labels, selected_scores, omitted_labels, mode_note).
     Selected lists are ordered by descending relevance score.
     Text ranking, when used, runs only on a bounded candidate set after a cheap
     label pass. Digital PDFs use the native text layer first; OCR is fallback.
+    When ``compare`` is true and pages come from multiple files, the global
+    top-k budget is split across documents so each file can send pages.
     """
     if not page_images:
         return [], [], [], [], RANKING_MODE_LABEL
@@ -242,9 +325,7 @@ def rank_pages(
             mode_used = RANKING_MODE_LABEL
             scored = label_scored
 
-    k = max(1, min(int(top_k), len(scored)))
-    selected = scored[:k]
-    omitted = scored[k:]
+    selected, omitted, _compare_applied = _select_scored(scored, top_k, compare)
     images = [row[2] for row in selected]
     labels = [row[3] for row in selected]
     scores = [row[0] for row in selected]
@@ -278,6 +359,7 @@ def build_gallery_and_sources(
     ranking_mode: Optional[str] = None,
     requested_mode: Optional[str] = None,
     top_k: Optional[int] = None,
+    compare: bool = False,
 ) -> Tuple[List[Tuple[Image.Image, str]], str]:
     """Gallery of pages forwarded to the model, plus a ranking-aware source list."""
     sent = len(source_info)
@@ -296,6 +378,22 @@ def build_gallery_and_sources(
     used_line = _mode_used_line(ranking_mode)
     if used_line:
         lines.append(used_line)
+    if compare:
+        docs = []
+        seen = set()
+        for src in source_info:
+            key = document_key_from_label(src)
+            if key not in seen:
+                seen.add(key)
+                docs.append(key)
+        if len(docs) > 1:
+            lines.append(
+                "Compare mode: top-k budget split across documents ("
+                + ", ".join(docs)
+                + "). Cite each file by name."
+            )
+        else:
+            lines.append("Compare mode requested; only one document in the page set.")
     if top_k is not None:
         lines.append(f"Top-k pages sent: {sent} (budget {int(top_k)}).")
     for i, src in enumerate(source_info):

@@ -4,7 +4,12 @@ from typing import Any, Dict, List
 
 from PIL import Image
 
-from docintel.constants import MAX_HISTORY_TURNS, STRUCTURED_SYSTEM_PROMPT, SYSTEM_PROMPT
+from docintel.constants import (
+    COMPARE_SYSTEM_PROMPT,
+    MAX_HISTORY_TURNS,
+    STRUCTURED_SYSTEM_PROMPT,
+    SYSTEM_PROMPT,
+)
 
 
 def message_text(content: Any) -> str:
@@ -30,9 +35,15 @@ def build_vlm_messages(
     source_info: List[str],
     question: str,
     structured: bool = False,
+    compare: bool = False,
 ) -> List[Dict[str, Any]]:
     """System + prior text turns + current user turn with ranked page images."""
-    system = STRUCTURED_SYSTEM_PROMPT if structured else SYSTEM_PROMPT
+    if structured:
+        system = STRUCTURED_SYSTEM_PROMPT
+    elif compare:
+        system = COMPARE_SYSTEM_PROMPT
+    else:
+        system = SYSTEM_PROMPT
     messages: List[Dict[str, Any]] = [
         {"role": "system", "content": system},
     ]
@@ -53,9 +64,15 @@ def build_vlm_messages(
         content.append({"type": "image", "image": img})
         content.append({"type": "text", "text": f"[Source: {src}]"})
     user_text = question
-    if structured:
+    if compare:
         user_text = (
             question
+            + "\n\nCompare the uploaded documents. Contrast them on this question "
+            "and cite every claim with the full source label (filename and page)."
+        )
+    if structured:
+        user_text = (
+            user_text
             + "\n\nReturn only valid JSON matching the required schema "
             "(answer, key_values, tables, citations)."
         )

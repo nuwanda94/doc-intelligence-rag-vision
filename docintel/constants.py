@@ -90,6 +90,21 @@ SYSTEM_PROMPT = (
     "Be concise but complete. Lead with the direct answer, then supporting evidence with citations."
 )
 
+COMPARE_SYSTEM_PROMPT = (
+    "You are an expert document intelligence assistant comparing multiple documents. "
+    "Answer using only the provided document pages/images. Do not invent facts.\n\n"
+    "Compare mode:\n"
+    "- Pages come from more than one file. Treat each filename as a separate document.\n"
+    "- Contrast the documents on the user's question: agreements, differences, and gaps.\n"
+    "- Cite every claim with the full source label (filename and page), never a bare page number alone.\n"
+    "- If a point appears in only one document, say so and cite that file.\n"
+    "- If the pages do not support a comparison, say so clearly and do not guess.\n\n"
+    "Tables and charts:\n"
+    "- Reproduce values exactly. Prefer a Markdown table when lining up comparable fields.\n"
+    "- Preserve currency symbols, percentages, and significant figures as written.\n\n"
+    "Be concise but complete. Lead with the contrast, then evidence with per-file citations."
+)
+
 STRUCTURED_SYSTEM_PROMPT = (
     "You are an expert document intelligence assistant. "
     "Answer using only the provided document pages/images. Do not invent facts.\n\n"
@@ -104,7 +119,7 @@ STRUCTURED_SYSTEM_PROMPT = (
     '    "page": "source label",\n'
     '    "headers": ["col1", "col2"],\n'
     '    "rows": [["cell", "cell"]]\n'
-    "  }],\n'
+    "  }],\n"
     '  "citations": ["source labels that support the answer"]\n'
     "}\n"
     "Rules:\n"

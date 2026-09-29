@@ -40,6 +40,7 @@ def clear_workspace():
         False,
         TOP_K_PAGES,
         RANKING_MODE_UI[DEFAULT_RANKING_MODE],
+        False,
         [],
         "",
         STATUS_IDLE,
@@ -58,6 +59,7 @@ def build_demo(chat_analyze):
 
     Upload PDFs or images, then chat about content, tables, charts, diagrams, or scanned text.
     Pages are ranked with a cheap keyword score; only the top-k pages are sent to the model.
+    Enable **Compare documents** to split that budget across files and ask for a contrast with per-file citations.
     Follow-up questions reuse the extracted pages and prior answers.
     """)
 
@@ -100,6 +102,11 @@ def build_demo(chat_analyze):
                         label="Page ranking mode",
                         info="Label-only is fastest. OCR scores question overlap against page text when available.",
                     )
+                    compare_mode = gr.Checkbox(
+                        label="Compare documents",
+                        value=False,
+                        info="Split top-k across uploaded files and ask the model to contrast them with per-file citations.",
+                    )
                     temperature = gr.Slider(0.0, 1.0, value=DEFAULT_TEMPERATURE, step=0.05, label="Temperature")
                     max_tokens = gr.Slider(MIN_MAX_NEW_TOKENS, MAX_MAX_NEW_TOKENS, value=DEFAULT_MAX_NEW_TOKENS, step=64, label="Max new tokens")
                     structured_output = gr.Checkbox(
@@ -137,6 +144,7 @@ def build_demo(chat_analyze):
                 [None, "Summarize the main points of this document."],
                 [None, "Extract all numerical values and tables."],
                 [None, "What does the chart/diagram show?"],
+                [None, "Compare these documents and cite differences by filename."],
             ],
             inputs=[files, question],
             label="Example questions (upload your own files)"
@@ -153,6 +161,7 @@ def build_demo(chat_analyze):
             structured_output,
             top_k,
             ranking_mode,
+            compare_mode,
         ]
         analyze_outputs = [
             status,
@@ -192,6 +201,7 @@ def build_demo(chat_analyze):
                 structured_output,
                 top_k,
                 ranking_mode,
+                compare_mode,
                 gallery,
                 sources,
                 status,
@@ -205,6 +215,7 @@ def build_demo(chat_analyze):
     ---
     **Tech**: Qwen2.5-VL-3B-Instruct · Gradio · ZeroGPU  
     **How pages are chosen**: keyword overlap on file/page labels, optional OCR text overlap — not a vector index.  
+    **Compare mode**: splits the top-k budget across files and uses a contrast prompt with filename+page citations.  
     **GPU budget**: generate is capped at {GPU_DURATION_SECONDS}s on ZeroGPU; status shows elapsed/remaining while streaming. Use **Stop** to cancel a hung run.  
     **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Follow-ups reuse cached pages from the current upload.
     """)
