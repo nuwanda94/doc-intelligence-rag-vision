@@ -146,7 +146,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Optionally light repair (strip markdown fences) before parse; do not invent fields.
 - Type: feat
 
-### 27. [IN_PROGRESS] feat: content-hash file signature for page cache
+### 27. [DONE] feat: content-hash file signature for page cache
 - Replace path-only `file_signature` with a stable signature (e.g. size + hash of file bytes) so re-uploads of the same bytes reuse cache when paths change.
 - Type: fix
 
