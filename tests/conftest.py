@@ -40,6 +40,15 @@ def _install_heavy_stubs() -> None:
     transformers.Qwen2_5_VLForConditionalGeneration = model_cls
     transformers.AutoProcessor = processor
     transformers.TextIteratorStreamer = MagicMock(name="TextIteratorStreamer")
+
+    class _StoppingCriteria:
+        pass
+
+    class _StoppingCriteriaList(list):
+        pass
+
+    transformers.StoppingCriteria = _StoppingCriteria
+    transformers.StoppingCriteriaList = _StoppingCriteriaList
     sys.modules["transformers"] = transformers
 
     qwen = types.ModuleType("qwen_vl_utils")
