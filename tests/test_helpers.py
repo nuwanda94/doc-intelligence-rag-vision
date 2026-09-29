@@ -116,6 +116,73 @@ def test_page_text_relevance_score_uses_ocr_overlap(app_module):
     assert with_text > label_only
 
 
+def test_page_text_relevance_score_length_normalizes(app_module):
+    label = "scan.pdf — page 1"
+    q = "What is the revenue figure?"
+    short = app_module.page_text_relevance_score(label, "Revenue figure twelve million", q, 0)
+    wordy = app_module.page_text_relevance_score(
+        label,
+        "Revenue figure twelve million "
+        + "appendix notes glossary index acknowledgements bibliography "
+        + "cover preface contents photos captions footnotes references",
+        q,
+        0,
+    )
+    assert short > wordy
+
+
+def test_rank_pages_ocr_prefers_short_relevant_over_wordy(app_module):
+    pages = [object(), object()]
+    sources = ["scan.pdf — page 1", "scan.pdf — page 2"]
+    texts = {
+        0: (
+            "revenue figure twelve million plus a long appendix of notes glossary "
+            "index acknowledgements bibliography cover preface contents photos "
+            "captions footnotes references extras padding filler paragraphs"
+        ),
+        1: "revenue figure twelve million",
+    }
+
+    def fake_ocr(img):
+        return texts[pages.index(img)]
+
+    images, labels, scores, omitted, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue figure?",
+        top_k=1,
+        ranking_mode="ocr",
+        ocr_fn=fake_ocr,
+    )
+    assert mode == "ocr"
+    assert labels == ["scan.pdf — page 2"]
+    assert omitted == ["scan.pdf — page 1"]
+    assert scores[0] > 0.05
+
+
+def test_rank_pages_label_mode_ignores_page_text_length(app_module):
+    pages = [object(), object()]
+    sources = ["scan.pdf — page 1", "scan.pdf — page 2"]
+    called = {"n": 0}
+
+    def fake_ocr(_img):
+        called["n"] += 1
+        return "revenue figure twelve million"
+
+    images, labels, _, omitted, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue figure?",
+        top_k=1,
+        ranking_mode="label",
+        ocr_fn=fake_ocr,
+    )
+    assert called["n"] == 0
+    assert mode == "label"
+    assert labels == ["scan.pdf — page 1"]
+    assert omitted == ["scan.pdf — page 2"]
+
+
 def test_rank_pages_ocr_mode_prefers_text_overlap(app_module):
     pages = [object(), object(), object()]
     sources = [

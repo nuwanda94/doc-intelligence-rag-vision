@@ -68,12 +68,18 @@ def page_text_relevance_score(
     question: str,
     page_index: int,
 ) -> float:
-    """Label score plus keyword overlap against cheap OCR/extracted page text."""
+    """Label score plus length-normalized keyword overlap on page text.\n\n    Uses Jaccard |q ∩ page| / |q ∪ page| so long boilerplate pages do not
+    outrank short pages that share the same query tokens. Label and explicit
+    page-ref bonuses from `page_relevance_score` are unchanged.
+    """
     score = page_relevance_score(source_label, question, page_index)
     q_tokens = tokenize_query(question)
     text_tokens = tokenize_query(page_text or "")
     if q_tokens and text_tokens:
-        score += OCR_TEXT_WEIGHT * float(len(q_tokens & text_tokens))
+        overlap = q_tokens & text_tokens
+        union = q_tokens | text_tokens
+        if union:
+            score += OCR_TEXT_WEIGHT * (len(overlap) / len(union))
     return score
 
 
