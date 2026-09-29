@@ -19,7 +19,7 @@ jobs:
           python-version: "3.12"
 
       - name: Syntax-check app.py and docintel package
-        run: python -m py_compile app.py docintel/__init__.py docintel/constants.py docintel/ingest.py docintel/ranking.py docintel/vlm.py docintel/pipeline.py docintel/ui.py docintel/structured.py
+        run: python -m compileall -q -f app.py docintel
 
       - name: Parse app.py and list top-level imports
         run: |
