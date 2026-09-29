@@ -21,6 +21,11 @@ from docintel.constants import (
     TOP_K_SLIDER_MIN,
 )
 
+_THEME = gr.themes.Soft(primary_hue="blue", secondary_hue="slate")
+_CSS = """
+    .gradio-container {max-width: 1100px !important}
+"""
+
 
 def clear_workspace():
     """Reset uploads, chat history, cached pages, outputs, and status."""
@@ -44,13 +49,8 @@ def clear_workspace():
 
 
 def build_demo(chat_analyze):
-    with gr.Blocks(
-        title="Multimodal Document Intelligence",
-        theme=gr.themes.Soft(primary_hue="blue", secondary_hue="slate"),
-        css="""
-    .gradio-container {max-width: 1100px !important}
-    """
-    ) as demo:
+    # Gradio 6: theme/css belong on launch(), not Blocks(); Chatbot is messages-only.
+    with gr.Blocks(title="Multimodal Document Intelligence") as demo:
         gr.Markdown("""
     # 📄 Multimodal Document Intelligence
     **Vision-language Q&A with lightweight page selection** (not embedding/vector RAG) · Qwen2.5-VL-3B
@@ -73,7 +73,6 @@ def build_demo(chat_analyze):
                 chatbot = gr.Chatbot(
                     label="Conversation",
                     height=420,
-                    type="messages",
                 )
                 question = gr.Textbox(
                     label="Your message",
@@ -210,4 +209,4 @@ def build_demo(chat_analyze):
 
 
 def launch(demo):
-    demo.queue(max_size=QUEUE_MAX_SIZE).launch()
+    demo.queue(max_size=QUEUE_MAX_SIZE).launch(theme=_THEME, css=_CSS)
