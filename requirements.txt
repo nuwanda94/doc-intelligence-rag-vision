@@ -1,9 +1,10 @@
 # Pinned / tightly bounded for reproducible Hugging Face Space builds.
 # Align Gradio with README Space sdk_version.
+# ZeroGPU only accepts specific torch releases (2.8.0+); see hub docs.
 gradio==6.27.0
 transformers>=4.49.0,<5
-torch>=2.4.0,<2.8
-torchvision>=0.19.0,<0.23
+torch==2.8.0
+torchvision==0.23.0
 qwen-vl-utils==0.0.8
 pdf2image>=1.17.0,<2
 Pillow>=10.4.0,<12
