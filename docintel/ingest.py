@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import hashlib
 import os
-from typing import List, Optional, Tuple
+import subprocess
+from typing import Any, Dict, List, Optional, Tuple
 
 import gradio as gr
 from pdf2image import convert_from_path
@@ -19,6 +20,7 @@ from docintel.constants import (
 )
 
 _HASH_CHUNK_BYTES = 1024 * 1024
+_PDFTEXT_TIMEOUT_SECONDS = 8
 
 
 def prepare_image(img: Image.Image, max_side: int = MAX_IMAGE_SIDE) -> Image.Image:
@@ -150,6 +152,63 @@ def validate_uploads(files: Optional[List], question: str) -> List[str]:
     return validated_paths
 
 
+def _extract_pdf_page_pypdf(pdf_path: str, page_number: int) -> str:
+    """Optional pypdf/PyPDF2 fallback when pdftotext is unavailable."""
+    reader_cls = None
+    try:
+        from pypdf import PdfReader as reader_cls  # type: ignore
+    except Exception:
+        try:
+            from PyPDF2 import PdfReader as reader_cls  # type: ignore
+        except Exception:
+            return ""
+    try:
+        reader = reader_cls(pdf_path)
+        idx = page_number - 1
+        pages = getattr(reader, "pages", [])
+        if idx < 0 or idx >= len(pages):
+            return ""
+        text = pages[idx].extract_text() or ""
+        return text.strip()
+    except Exception:
+        return ""
+
+
+def extract_native_pdf_page_text(pdf_path: str, page_number: int) -> str:
+    """Best-effort native text-layer extract for one 1-based PDF page.\n\n    Prefers ``pdftotext`` (poppler, already in packages.txt). Falls back to
+    pypdf/PyPDF2 if installed. Returns empty string for missing tools,
+    scanned pages, or errors — callers should then OCR.
+    """
+    if not pdf_path or page_number < 1:
+        return ""
+    try:
+        proc = subprocess.run(
+            [
+                "pdftotext",
+                "-f",
+                str(page_number),
+                "-l",
+                str(page_number),
+                "-layout",
+                pdf_path,
+                "-",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=_PDFTEXT_TIMEOUT_SECONDS,
+            check=False,
+        )
+        if proc.returncode == 0:
+            text = (proc.stdout or "").strip()
+            if text:
+                return text
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    except Exception:
+        pass
+    return _extract_pdf_page_pypdf(pdf_path, page_number)
+
+
 def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Optional[int] = None) -> List[Image.Image]:
     """Convert PDF pages to images (limited for free tier).\n\n    DPI is chosen adaptively from max_pages when not provided:
     150 for short docs (≤ DPI_PAGE_THRESHOLD pages), 120 for longer ones.
@@ -171,15 +230,19 @@ def pdf_to_images(pdf_path: str, max_pages: int = MAX_PAGES_DEFAULT, dpi: Option
 
 def load_pages_from_paths(
     paths: List[str], max_pages: int
-) -> Tuple[List[Image.Image], List[str], Optional[str]]:
+) -> Tuple[List[Image.Image], List[str], Optional[str], List[Dict[str, Any]]]:
     """Load images from uploads under a single global page budget.\n\n    ``max_pages`` is the total number of pages/images kept across all files,
     not a per-PDF cap. Loading stops once the budget is filled.
 
     For PDFs, one extra page is converted as a probe so a document whose
     length equals the remaining budget is not flagged as truncated.
+
+    Each origin dict is ``{kind, path, page}`` so ranking can read the
+    native PDF text layer without re-deriving page numbers from labels.
     """
     all_images: List[Image.Image] = []
     all_sources: List[str] = []
+    all_origins: List[Dict[str, Any]] = []
     skipped_files: List[str] = []
     truncated_pdfs: List[str] = []
     budget = max(1, int(max_pages))
@@ -202,6 +265,9 @@ def load_pages_from_paths(
                 imgs = imgs[:requested]
             all_images.extend(imgs)
             all_sources.extend([f"{name} — page {i+1}" for i in range(len(imgs))])
+            all_origins.extend(
+                [{"kind": "pdf", "path": path, "page": i + 1} for i in range(len(imgs))]
+            )
             budget -= len(imgs)
         else:
             try:
@@ -212,6 +278,7 @@ def load_pages_from_paths(
                 raise gr.Error(f"Image '{name}' has zero width or height.")
             all_images.append(img)
             all_sources.append(name)
+            all_origins.append({"kind": "image", "path": path, "page": 1})
             budget -= 1
 
     if not all_images:
@@ -232,4 +299,4 @@ def load_pages_from_paths(
                 "Not loaded: " + ", ".join(skipped_files) + "."
             )
     truncation_note = " ".join(note_parts) if note_parts else None
-    return all_images, all_sources, truncation_note
+    return all_images, all_sources, truncation_note, all_origins

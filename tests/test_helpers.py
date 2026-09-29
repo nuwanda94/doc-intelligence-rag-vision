@@ -185,6 +185,104 @@ def test_rank_pages_ocr_falls_back_when_no_text(app_module):
     assert labels[0] == "scan.pdf — page 1"
 
 
+def test_rank_pages_native_pdf_text_skips_ocr(app_module):
+    pages = [object(), object()]
+    sources = ["report.pdf — page 1", "report.pdf — page 2"]
+    origins = [
+        {"kind": "pdf", "path": "/tmp/report.pdf", "page": 1},
+        {"kind": "pdf", "path": "/tmp/report.pdf", "page": 2},
+    ]
+    ocr_calls = {"n": 0}
+    native_calls = []
+
+    def fake_ocr(_img):
+        ocr_calls["n"] += 1
+        return "should not be used"
+
+    def fake_native(path, page):
+        native_calls.append((path, page))
+        if page == 2:
+            return "annual revenue twelve million"
+        return "table of contents"
+
+    images, labels, _, omitted, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue?",
+        top_k=1,
+        ranking_mode="ocr",
+        ocr_fn=fake_ocr,
+        native_text_fn=fake_native,
+        page_origins=origins,
+    )
+    assert mode == "ocr"
+    assert labels == ["report.pdf — page 2"]
+    assert ocr_calls["n"] == 0
+    assert native_calls == [("/tmp/report.pdf", 1), ("/tmp/report.pdf", 2)]
+    assert set(omitted) == {"report.pdf — page 1"}
+
+
+def test_rank_pages_ocr_when_native_text_empty(app_module):
+    pages = [object(), object()]
+    sources = ["scan.pdf — page 1", "scan.pdf — page 2"]
+    origins = [
+        {"kind": "pdf", "path": "/tmp/scan.pdf", "page": 1},
+        {"kind": "pdf", "path": "/tmp/scan.pdf", "page": 2},
+    ]
+
+    def fake_native(_path, _page):
+        return ""
+
+    def fake_ocr(img):
+        return {
+            0: "cover photo",
+            1: "operating revenue details",
+        }[pages.index(img)]
+
+    images, labels, _, _, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue?",
+        top_k=1,
+        ranking_mode="ocr",
+        ocr_fn=fake_ocr,
+        native_text_fn=fake_native,
+        page_origins=origins,
+    )
+    assert mode == "ocr"
+    assert labels == ["scan.pdf — page 2"]
+
+
+def test_rank_pages_reuses_text_cache(app_module):
+    pages = [object()]
+    sources = ["scan.pdf — page 1"]
+    origins = [{"kind": "pdf", "path": "/tmp/scan.pdf", "page": 1}]
+    cache = {0: "cached revenue figure"}
+    native_calls = {"n": 0}
+    ocr_calls = {"n": 0}
+
+    images, labels, scores, _, mode = app_module.rank_pages(
+        pages,
+        sources,
+        "What is the revenue?",
+        top_k=1,
+        ranking_mode="ocr",
+        ocr_fn=lambda _img: ocr_calls.__setitem__("n", ocr_calls["n"] + 1) or "",
+        native_text_fn=lambda *_a: native_calls.__setitem__("n", native_calls["n"] + 1) or "",
+        page_origins=origins,
+        ocr_cache=cache,
+    )
+    assert mode == "ocr"
+    assert native_calls["n"] == 0
+    assert ocr_calls["n"] == 0
+    assert scores[0] > 0.05
+
+
+def test_extract_native_pdf_page_text_invalid(app_module):
+    assert app_module.extract_native_pdf_page_text("", 1) == ""
+    assert app_module.extract_native_pdf_page_text("/tmp/x.pdf", 0) == ""
+
+
 def test_normalize_ranking_mode_accepts_ui_labels(app_module):
     assert app_module.normalize_ranking_mode("Label keywords only") == "label"
     assert app_module.normalize_ranking_mode("OCR / page text") == "ocr"
@@ -314,11 +412,14 @@ def test_load_pages_exact_length_pdf_is_not_truncated(app_module, tmp_path, monk
     pdf.write_bytes(b"%PDF-1.4 six-pages")
     monkeypatch.setattr(ingest, "convert_from_path", _fake_pdf_pages(6))
 
-    images, sources, note = app_module.load_pages_from_paths([str(pdf)], max_pages=6)
+    images, sources, note, origins = app_module.load_pages_from_paths([str(pdf)], max_pages=6)
     assert len(images) == 6
     assert len(sources) == 6
     assert note is None
     assert "truncated" not in (note or "").lower()
+    assert origins[0]["kind"] == "pdf"
+    assert origins[0]["path"] == str(pdf)
+    assert origins[-1]["page"] == 6
 
 
 def test_load_pages_over_budget_pdf_is_truncated(app_module, tmp_path, monkeypatch):
@@ -328,8 +429,9 @@ def test_load_pages_over_budget_pdf_is_truncated(app_module, tmp_path, monkeypat
     pdf.write_bytes(b"%PDF-1.4 seven-pages")
     monkeypatch.setattr(ingest, "convert_from_path", _fake_pdf_pages(7))
 
-    images, sources, note = app_module.load_pages_from_paths([str(pdf)], max_pages=6)
+    images, sources, note, origins = app_module.load_pages_from_paths([str(pdf)], max_pages=6)
     assert len(images) == 6
+    assert len(origins) == 6
     assert sources[-1].endswith("page 6")
     assert note is not None
     assert "Possibly truncated" in note

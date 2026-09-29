@@ -45,6 +45,7 @@ from docintel.constants import (
 )
 from docintel.ingest import (
     adaptive_dpi,
+    extract_native_pdf_page_text,
     file_path as _file_path,
     file_signature,
     load_pages_from_paths,
@@ -60,6 +61,7 @@ from docintel.ranking import (
     normalize_ranking_mode,
     ocr_page_text,
     page_relevance_score,
+    page_text_for_ranking,
     page_text_relevance_score,
     rank_pages,
     tokenize_query,
