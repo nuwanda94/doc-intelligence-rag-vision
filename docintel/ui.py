@@ -6,6 +6,7 @@ from docintel.constants import (
     DEFAULT_MAX_NEW_TOKENS,
     DEFAULT_RANKING_MODE,
     DEFAULT_TEMPERATURE,
+    GPU_DURATION_SECONDS,
     MAX_MAX_NEW_TOKENS,
     MAX_PAGES_DEFAULT,
     MAX_PAGES_SLIDER_MAX,
@@ -109,6 +110,7 @@ def build_demo(chat_analyze):
 
                 with gr.Row():
                     submit_btn = gr.Button("Send", variant="primary", size="lg")
+                    stop_btn = gr.Button("Stop", variant="stop", size="lg")
                     clear_btn = gr.Button("Clear", variant="secondary", size="lg")
 
             with gr.Column(scale=1):
@@ -163,18 +165,19 @@ def build_demo(chat_analyze):
             key_values_json,
         ]
 
-        submit_btn.click(
+        send_click = submit_btn.click(
             fn=chat_analyze,
             inputs=analyze_inputs,
             outputs=analyze_outputs,
             show_progress="full",
         )
-        question.submit(
+        send_submit = question.submit(
             fn=chat_analyze,
             inputs=analyze_inputs,
             outputs=analyze_outputs,
             show_progress="full",
         )
+        stop_btn.click(fn=None, cancels=[send_click, send_submit])
 
         clear_btn.click(
             fn=clear_workspace,
@@ -202,6 +205,7 @@ def build_demo(chat_analyze):
     ---
     **Tech**: Qwen2.5-VL-3B-Instruct · Gradio · ZeroGPU  
     **How pages are chosen**: keyword overlap on file/page labels, optional OCR text overlap — not a vector index.  
+    **GPU budget**: generate is capped at {GPU_DURATION_SECONDS}s on ZeroGPU; status shows elapsed/remaining while streaming. Use **Stop** to cancel a hung run.  
     **Limitations**: Free tier processes up to ~{MAX_PAGES_SLIDER_MAX} pages. Follow-ups reuse cached pages from the current upload.
     """)
 

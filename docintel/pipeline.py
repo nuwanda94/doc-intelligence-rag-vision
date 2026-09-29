@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from threading import Thread
+from threading import Event, Thread
+from time import monotonic
 from typing import Any, Dict, Iterator, List, Optional
 
 import gradio as gr
@@ -15,15 +16,35 @@ from docintel.constants import (
     GPU_DURATION_SECONDS,
     MAX_PAGES_DEFAULT,
     STATUS_DONE,
-    STATUS_GENERATING,
     STATUS_PREPARING,
     TOP_K_PAGES,
     TOP_P,
+    format_gpu_budget_status,
 )
 from docintel.ingest import file_signature, load_pages_from_paths, validate_uploads
 from docintel.ranking import build_gallery_and_sources, normalize_ranking_mode, rank_pages
 from docintel.structured import build_structured_exports, parse_structured_output
 from docintel.vlm import build_vlm_messages
+
+try:
+    from transformers import StoppingCriteria, StoppingCriteriaList
+except ImportError:  # pragma: no cover - tests stub transformers
+    StoppingCriteria = object  # type: ignore[misc,assignment]
+    StoppingCriteriaList = list  # type: ignore[misc,assignment]
+
+
+class EventStoppingCriteria(StoppingCriteria):
+    """Halt ``model.generate`` when a threading Event is set (Stop / cancel)."""
+
+    def __init__(self, stop_event: Event):
+        try:
+            super().__init__()
+        except TypeError:
+            pass
+        self.stop_event = stop_event
+
+    def __call__(self, input_ids=None, scores=None, **kwargs) -> bool:
+        return bool(self.stop_event.is_set())
 
 
 def make_chat_analyze(spaces, processor, model):
@@ -36,8 +57,14 @@ def make_chat_analyze(spaces, processor, model):
     """
 
     @spaces.GPU(duration=GPU_DURATION_SECONDS)
-    def generate_on_gpu(messages: List[Dict[str, Any]], temperature: float, max_new_tokens: int) -> Iterator[str]:
+    def generate_on_gpu(
+        messages: List[Dict[str, Any]],
+        temperature: float,
+        max_new_tokens: int,
+        stop_event: Optional[Event] = None,
+    ) -> Iterator[str]:
         """Tokenize vision messages and stream ``model.generate`` on ZeroGPU."""
+        stop_event = stop_event or Event()
         text = processor.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
         image_inputs, video_inputs = process_vision_info(messages)
         inputs = processor(
@@ -60,12 +87,18 @@ def make_chat_analyze(spaces, processor, model):
             temperature=temperature,
             do_sample=temperature > 0,
             top_p=TOP_P,
+            stopping_criteria=StoppingCriteriaList([EventStoppingCriteria(stop_event)]),
         )
         thread = Thread(target=model.generate, kwargs=gen_kwargs)
         thread.start()
-        for token in streamer:
-            yield token
-        thread.join()
+        try:
+            for token in streamer:
+                if stop_event.is_set():
+                    break
+                yield token
+        finally:
+            stop_event.set()
+            thread.join(timeout=5)
 
     def chat_analyze(
         message: str,
@@ -157,11 +190,36 @@ def make_chat_analyze(spaces, processor, model):
 
         partial = ""
         streamed_history = pending + [{"role": "assistant", "content": ""}]
-        yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(value=""), *empty_exports
-        for token in generate_on_gpu(messages, temperature, max_new_tokens):
-            partial += token
-            streamed_history = pending + [{"role": "assistant", "content": partial}]
-            yield STATUS_GENERATING, streamed_history, doc_state, gallery, sources_text, gr.update(), *empty_exports
+        stop_event = Event()
+        gpu_started = monotonic()
+        yield (
+            format_gpu_budget_status(0),
+            streamed_history,
+            doc_state,
+            gallery,
+            sources_text,
+            gr.update(value=""),
+            *empty_exports,
+        )
+        try:
+            for token in generate_on_gpu(messages, temperature, max_new_tokens, stop_event):
+                partial += token
+                streamed_history = pending + [{"role": "assistant", "content": partial}]
+                yield (
+                    format_gpu_budget_status(monotonic() - gpu_started),
+                    streamed_history,
+                    doc_state,
+                    gallery,
+                    sources_text,
+                    gr.update(),
+                    *empty_exports,
+                )
+        except GeneratorExit:
+            stop_event.set()
+            raise
+        finally:
+            stop_event.set()
+
         if not partial:
             partial = "(No answer generated.)"
 
@@ -189,4 +247,5 @@ def make_chat_analyze(spaces, processor, model):
         yield done_status, final_history, doc_state, gallery, sources_text, gr.update(value=""), csv_path, json_path
 
     chat_analyze.generate_on_gpu = generate_on_gpu
+    chat_analyze.EventStoppingCriteria = EventStoppingCriteria
     return chat_analyze
