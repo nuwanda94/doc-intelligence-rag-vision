@@ -154,7 +154,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - When the answer cites page labels, visually emphasize matching gallery items (caption badge or border)—no requirement for pixel-level bbox overlays in this item.
 - Type: feat
 
-### 29. [IN_PROGRESS] feat: export structured tables / key-values
+### 29. [DONE] feat: export structured tables / key-values
 - When structured JSON parse succeeds, offer download of tables as CSV and/or key-values as JSON.
 - No-op when structured mode is off or parse fails.
 - Type: feat
