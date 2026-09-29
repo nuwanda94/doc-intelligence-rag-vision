@@ -1,4 +1,4 @@
-"""Import app.py without loading the VLM / GPU stack."""
+"""Stub heavy Space deps so tests can import docintel modules directly."""
 
 from __future__ import annotations
 
@@ -112,13 +112,19 @@ def _install_heavy_stubs() -> None:
     sys.modules["PIL.Image"] = pil_image
 
 
+@pytest.fixture(scope="session", autouse=True)
+def heavy_dep_stubs():
+    _install_heavy_stubs()
+
+
 @pytest.fixture(scope="session")
 def app_module():
+    """Optional entrypoint import; prefer docintel.* in unit tests."""
     _install_heavy_stubs()
-    # Drop a failed partial import so a clean re-import can succeed.
     for name in list(sys.modules):
         if name == "app" or name.startswith("docintel"):
             del sys.modules[name]
+    _install_heavy_stubs()
     import app as app_mod
 
     return app_mod

@@ -201,7 +201,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Keep label-only ranking unchanged; update OCR/text-mode tests.
 - Type: fix
 
-### 36. [TODO] chore: compile the whole package in CI and test modules directly
+### 36. [DONE] chore: compile the whole package in CI and test modules directly
 - Smoke `py_compile` lists files by hand and omits `docintel/citations.py`.
 - Compile `app.py` + `docintel/` recursively; prefer `from docintel.*` in tests over importing `app.py` (stubs can stay for anything that still needs the entrypoint).
 - Type: chore
