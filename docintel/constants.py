@@ -25,7 +25,25 @@ MAX_HISTORY_TURNS = 8  # prior user/assistant pairs kept in the VLM prompt
 STATUS_IDLE = "Ready — upload a document and start a conversation."
 STATUS_PREPARING = "Preparing pages and allocating GPU… this can take a minute on a cold start."
 STATUS_GENERATING = "Generating answer…"
+STATUS_STOPPED = "Generation stopped. Partial answer is kept — send again or clear."
 STATUS_DONE = "Done. Ask a follow-up or clear to start over."
+
+
+def format_gpu_budget_status(elapsed_s: float, budget_s: int = GPU_DURATION_SECONDS) -> str:
+    """Status line with elapsed / remaining ZeroGPU generate budget."""
+    try:
+        elapsed = max(0.0, float(elapsed_s))
+    except (TypeError, ValueError):
+        elapsed = 0.0
+    try:
+        budget = max(0, int(budget_s))
+    except (TypeError, ValueError):
+        budget = GPU_DURATION_SECONDS
+    remaining = max(0.0, float(budget) - elapsed)
+    return (
+        f"Generating answer… GPU {elapsed:.0f}s elapsed, "
+        f"~{remaining:.0f}s remaining of {budget}s ZeroGPU budget."
+    )
 
 # Ranking: label-only is the fast default; OCR is optional and bounded.
 RANKING_MODE_LABEL = "label"
@@ -86,7 +104,7 @@ STRUCTURED_SYSTEM_PROMPT = (
     '    "page": "source label",\n'
     '    "headers": ["col1", "col2"],\n'
     '    "rows": [["cell", "cell"]]\n'
-    "  }],\n"
+    "  }],\n'
     '  "citations": ["source labels that support the answer"]\n'
     "}\n"
     "Rules:\n"
