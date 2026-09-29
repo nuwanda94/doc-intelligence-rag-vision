@@ -189,7 +189,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Extend `tests/test_citations.py`.
 - Type: fix
 
-### 34. [IN_PROGRESS] feat: rank digital PDFs with the native text layer before OCR
+### 34. [DONE] feat: rank digital PDFs with the native text layer before OCR
 - Tesseract on downscaled rasters is slow and lossy when `pdftotext` / pypdf already has a text layer.
 - Extract per-page PDF text when present; score that like OCR text; keep Tesseract for image-only / empty text-layer pages.
 - Bound extraction to the same candidate limit; cache on `doc_state`; no extra GPU use.
