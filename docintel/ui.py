@@ -38,6 +38,8 @@ def clear_workspace():
         "",
         STATUS_IDLE,
         gr.update(value=""),
+        None,
+        None,
     )
 
 
@@ -118,6 +120,16 @@ def build_demo(chat_analyze):
                     height=400,
                     object_fit="contain",
                 )
+                tables_csv = gr.File(
+                    label="Download tables (CSV)",
+                    file_count="single",
+                    interactive=False,
+                )
+                key_values_json = gr.File(
+                    label="Download key-values (JSON)",
+                    file_count="single",
+                    interactive=False,
+                )
 
         gr.Examples(
             examples=[
@@ -141,7 +153,16 @@ def build_demo(chat_analyze):
             top_k,
             ranking_mode,
         ]
-        analyze_outputs = [status, chatbot, doc_state, gallery, sources, question]
+        analyze_outputs = [
+            status,
+            chatbot,
+            doc_state,
+            gallery,
+            sources,
+            question,
+            tables_csv,
+            key_values_json,
+        ]
 
         submit_btn.click(
             fn=chat_analyze,
@@ -173,6 +194,8 @@ def build_demo(chat_analyze):
                 sources,
                 status,
                 question,
+                tables_csv,
+                key_values_json,
             ],
         )
 
