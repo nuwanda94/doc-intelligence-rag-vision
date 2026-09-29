@@ -171,7 +171,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Remove or rewrite "Future ideas" that are already implemented (citation overlays, CSV export).
 - Type: docs
 
-### 31. [TODO] fix: keep ingest/ranking off the ZeroGPU decorator
+### 31. [DONE] fix: keep ingest/ranking off the ZeroGPU decorator
 - `@spaces.GPU` wraps all of `chat_analyze`, including validation, SHA hashing, pdf2image, Tesseract, and ranking.
 - Split CPU prepare (pages + rank + messages) from GPU generate/stream so quota and the 120s duration cover only `model.generate`.
 - Preserve streaming yields and `doc_state` cache behavior.
