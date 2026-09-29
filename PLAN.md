@@ -42,7 +42,7 @@ Automation picks the next incomplete item (status: TODO), implements it, opens a
 - Use Gradio streaming / yield partial tokens from model.generate.
 - Type: feat
 
-### 7. [DONE] fix: improve system prompt for citations and tables
+### 7. [DONE] feat: improve system prompt for citations and tables
 - Strengthen system prompt to require page citations and precise table/chart extraction.
 - Type: fix
 
@@ -183,7 +183,7 @@ Review of `main` after items 1–29. Highest-leverage remaining work is **accura
 - Add a unit test for equal-length vs over-budget PDFs.
 - Type: fix
 
-### 33. [TODO] fix: citation highlights must not cross files on page number alone
+### 33. [IN_PROGRESS] fix: citation highlights must not cross files on page number alone
 - `source_is_cited` treats any answer mention of `page N` as a hit for every source whose label contains that number, so two PDFs both get page 2 highlighted.
 - Prefer full source-label / filename match; use bare page-number fallback only for a single-file session or when the filename token is also present.
 - Extend `tests/test_citations.py`.
